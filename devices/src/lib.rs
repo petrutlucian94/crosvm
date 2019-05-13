@@ -27,7 +27,7 @@ pub use self::cmos::Cmos;
 pub use self::i8042::I8042Device;
 pub use self::ioapic::Ioapic;
 pub use self::pci::{
-    Ac97Dev, PciConfigIo, PciConfigMmio, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
+    PciConfigIo, PciConfigMmio, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
 };
 pub use self::pic::Pic;
 pub use self::pit::{Pit, PitError};

@@ -21,12 +21,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use libc::{self, c_int, gid_t, uid_t};
 
-use audio_streams::DummyStreamSource;
 use devices::virtio::{self, VirtioDevice};
 use devices::{self, HostBackendDeviceProvider, PciDevice, VirtioPciDevice, XhciController};
 use io_jail::{self, Minijail};
 use kvm::*;
-use libcras::CrasClient;
 use msg_socket::{MsgError, MsgReceiver, MsgSender, MsgSocket};
 use net_util::{Error as NetError, MacAddress, Tap};
 use qcow::{self, ImageType, QcowFile};
@@ -77,7 +75,6 @@ pub enum Error {
     BuildVm(<Arch as LinuxArch>::Error),
     ChownTpmStorage(sys_util::Error),
     CloneEventFd(sys_util::Error),
-    CreateCrasClient(libcras::Error),
     CreateEventFd(sys_util::Error),
     CreatePollContext(sys_util::Error),
     CreateSignalFd(sys_util::SignalFdError),
@@ -814,25 +811,6 @@ fn create_devices(
         pci_devices.push((dev, stub.jail));
     }
 
-    if cfg.cras_audio {
-        let server = Box::new(CrasClient::new().map_err(Error::CreateCrasClient)?);
-        let cras_audio = devices::Ac97Dev::new(mem.clone(), server);
-
-        pci_devices.push((
-            Box::new(cras_audio),
-            simple_jail(&cfg, "cras_audio_device.policy")?,
-        ));
-    }
-
-    if cfg.null_audio {
-        let server = Box::new(DummyStreamSource::new());
-        let null_audio = devices::Ac97Dev::new(mem.clone(), server);
-
-        pci_devices.push((
-            Box::new(null_audio),
-            simple_jail(&cfg, "null_audio_device.policy")?,
-        ));
-    }
     // Create xhci controller.
     let usb_controller = Box::new(XhciController::new(mem.clone(), usb_provider));
     pci_devices.push((usb_controller, simple_jail(&cfg, "xhci.policy")?));

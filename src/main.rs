@@ -100,8 +100,6 @@ pub struct Config {
     seccomp_policy_dir: PathBuf,
     gpu: bool,
     software_tpm: bool,
-    cras_audio: bool,
-    null_audio: bool,
     virtio_single_touch: Option<TouchDeviceOption>,
     virtio_trackpad: Option<TouchDeviceOption>,
     virtio_mouse: Option<PathBuf>,
@@ -139,8 +137,6 @@ impl Default for Config {
             shared_dirs: Vec::new(),
             sandbox: !cfg!(feature = "default-no-sandbox"),
             seccomp_policy_dir: PathBuf::from(SECCOMP_POLICY_DIR),
-            cras_audio: false,
-            null_audio: false,
             virtio_single_touch: None,
             virtio_trackpad: None,
             virtio_mouse: None,
@@ -305,12 +301,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
                             expected: "this value for `mem` needs to be integer",
                         })?,
                 )
-        }
-        "cras-audio" => {
-            cfg.cras_audio = true;
-        }
-        "null-audio" => {
-            cfg.null_audio = true;
         }
         "root" | "disk" | "rwdisk" | "qcow" | "rwqcow" => {
             let disk_path = PathBuf::from(value.unwrap());
@@ -700,8 +690,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
                           "IP address to assign to host tap interface."),
           Argument::value("netmask", "NETMASK", "Netmask for VM subnet."),
           Argument::value("mac", "MAC", "MAC address for VM."),
-          Argument::flag("cras-audio", "Add an audio device to the VM that plays samples through CRAS server"),
-          Argument::flag("null-audio", "Add an audio device to the VM that plays samples to /dev/null"),
           Argument::value("wayland-sock", "PATH", "Path to the Wayland socket to use."),
           #[cfg(feature = "wl-dmabuf")]
           Argument::flag("wayland-dmabuf", "Enable support for DMABufs in Wayland device."),
