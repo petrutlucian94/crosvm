@@ -40,7 +40,6 @@ TEST_MODULES_PARALLEL = [
 ]
 
 TEST_MODULES_SERIAL = [
-    'io_jail',
     'sys_util',
 ]
 

@@ -17,7 +17,6 @@ mod proxy;
 mod register_space;
 mod serial;
 pub mod split_irqchip_common;
-pub mod usb;
 mod utils;
 pub mod virtio;
 
@@ -35,6 +34,4 @@ pub use self::pl030::Pl030;
 pub use self::proxy::Error as ProxyError;
 pub use self::proxy::ProxyDevice;
 pub use self::serial::Serial;
-pub use self::usb::host_backend::host_backend_device_provider::HostBackendDeviceProvider;
-pub use self::usb::xhci::xhci_controller::XhciController;
 pub use self::virtio::VirtioPciDevice;

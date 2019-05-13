@@ -65,7 +65,6 @@ use crate::bootparam::boot_params;
 use crate::bootparam::E820_RAM;
 use arch::{RunnableLinuxVm, VmComponents};
 use devices::{PciConfigIo, PciDevice, PciInterruptPin};
-use io_jail::Minijail;
 use kvm::*;
 use remain::sorted;
 use resources::SystemAllocator;
@@ -300,7 +299,7 @@ impl arch::LinuxArch for X8664arch {
         F: FnOnce(
             &GuestMemory,
             &EventFd,
-        ) -> std::result::Result<Vec<(Box<dyn PciDevice>, Option<Minijail>)>, E>,
+        ) -> std::result::Result<Vec<Box<dyn PciDevice>>, E>,
         E: StdError + 'static,
     {
         let mut resources =

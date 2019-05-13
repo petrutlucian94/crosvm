@@ -88,12 +88,6 @@ impl Default for VmRunMode {
     }
 }
 
-/// The maximum number of devices that can be listed in one `UsbControlCommand`.
-///
-/// This value was set to be equal to `xhci_regs::MAX_PORTS` for convenience, but it is not
-/// necessary for correctness. Importing that value directly would be overkill because it would
-/// require adding a big dependency for a single const.
-pub const USB_CONTROL_MAX_PORTS: usize = 16;
 
 #[derive(MsgOnSocket, Debug)]
 pub enum BalloonControlCommand {
@@ -121,67 +115,6 @@ impl Display for DiskControlCommand {
 pub enum DiskControlResult {
     Ok,
     Err(SysError),
-}
-
-#[derive(MsgOnSocket, Debug)]
-pub enum UsbControlCommand {
-    AttachDevice {
-        bus: u8,
-        addr: u8,
-        vid: u16,
-        pid: u16,
-        fd: Option<MaybeOwnedFd>,
-    },
-    DetachDevice {
-        port: u8,
-    },
-    ListDevice {
-        ports: [u8; USB_CONTROL_MAX_PORTS],
-    },
-}
-
-#[derive(MsgOnSocket, Copy, Clone, Debug, Default)]
-pub struct UsbControlAttachedDevice {
-    pub port: u8,
-    pub vendor_id: u16,
-    pub product_id: u16,
-}
-
-impl UsbControlAttachedDevice {
-    fn valid(self) -> bool {
-        self.port != 0
-    }
-}
-
-#[derive(MsgOnSocket, Debug)]
-pub enum UsbControlResult {
-    Ok { port: u8 },
-    NoAvailablePort,
-    NoSuchDevice,
-    NoSuchPort,
-    FailedToOpenDevice,
-    Devices([UsbControlAttachedDevice; USB_CONTROL_MAX_PORTS]),
-}
-
-impl Display for UsbControlResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::UsbControlResult::*;
-
-        match self {
-            Ok { port } => write!(f, "ok {}", port),
-            NoAvailablePort => write!(f, "no_available_port"),
-            NoSuchDevice => write!(f, "no_such_device"),
-            NoSuchPort => write!(f, "no_such_port"),
-            FailedToOpenDevice => write!(f, "failed_to_open_device"),
-            Devices(devices) => {
-                write!(f, "devices")?;
-                for d in devices.iter().filter(|d| d.valid()) {
-                    write!(f, " {} {:04x} {:04x}", d.port, d.vendor_id, d.product_id)?;
-                }
-                std::result::Result::Ok(())
-            }
-        }
-    }
 }
 
 #[derive(MsgOnSocket, Debug)]
@@ -279,8 +212,6 @@ pub type BalloonControlResponseSocket = MsgSocket<(), BalloonControlCommand>;
 pub type DiskControlRequestSocket = MsgSocket<DiskControlCommand, DiskControlResult>;
 pub type DiskControlResponseSocket = MsgSocket<DiskControlResult, DiskControlCommand>;
 
-pub type UsbControlSocket = MsgSocket<UsbControlCommand, UsbControlResult>;
-
 pub type WlControlRequestSocket = MsgSocket<WlDriverRequest, WlDriverResponse>;
 pub type WlControlResponseSocket = MsgSocket<WlDriverResponse, WlDriverRequest>;
 
@@ -306,8 +237,6 @@ pub enum VmRequest {
         disk_index: usize,
         command: DiskControlCommand,
     },
-    /// Command to use controller.
-    UsbCommand(UsbControlCommand),
 }
 
 fn register_memory(
@@ -349,7 +278,6 @@ impl VmRequest {
         run_mode: &mut Option<VmRunMode>,
         balloon_host_socket: &BalloonControlRequestSocket,
         disk_host_sockets: &[DiskControlRequestSocket],
-        usb_control_socket: &UsbControlSocket,
     ) -> VmResponse {
         match *self {
             VmRequest::Exit => {
@@ -391,20 +319,6 @@ impl VmRequest {
                     VmResponse::Err(SysError::new(ENODEV))
                 }
             }
-            VmRequest::UsbCommand(ref cmd) => {
-                let res = usb_control_socket.send(cmd);
-                if let Err(e) = res {
-                    error!("fail to send command to usb control socket: {}", e);
-                    return VmResponse::Err(SysError::new(EIO));
-                }
-                match usb_control_socket.recv() {
-                    Ok(response) => VmResponse::UsbResponse(response),
-                    Err(e) => {
-                        error!("fail to recv command from usb control socket: {}", e);
-                        VmResponse::Err(SysError::new(EIO))
-                    }
-                }
-            }
         }
     }
 }
@@ -429,8 +343,6 @@ pub enum VmResponse {
         slot: u32,
         desc: GpuMemoryDesc,
     },
-    /// Results of usb control commands.
-    UsbResponse(UsbControlResult),
 }
 
 impl Display for VmResponse {
@@ -449,8 +361,7 @@ impl Display for VmResponse {
                 f,
                 "gpu memory allocated and registered to page frame number {:#x} and memory slot {}",
                 pfn, slot
-            ),
-            UsbResponse(result) => write!(f, "usb control request get result {:?}", result),
+            )
         }
     }
 }

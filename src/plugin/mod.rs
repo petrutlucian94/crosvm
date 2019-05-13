@@ -26,7 +26,6 @@ use libc::{
 use protobuf::ProtobufError;
 use remain::sorted;
 
-use io_jail::{self, Minijail};
 use kvm::{Datamatch, IoeventAddress, Kvm, Vcpu, VcpuExit, Vm};
 use net_util::{Error as TapError, Tap, TapT};
 use sys_util::{
@@ -50,7 +49,6 @@ pub enum Error {
     CloneVcpuPipe(io::Error),
     CreateEventFd(SysError),
     CreateIrqChip(SysError),
-    CreateJail(io_jail::Error),
     CreateKvm(SysError),
     CreateMainSocket(SysError),
     CreatePIT(SysError),
@@ -64,20 +62,10 @@ pub enum Error {
     DecodeRequest(ProtobufError),
     DropCapabilities(SysError),
     EncodeResponse(ProtobufError),
-    Mount(io_jail::Error),
-    MountDev(io_jail::Error),
-    MountLib(io_jail::Error),
-    MountLib64(io_jail::Error),
-    MountPlugin(io_jail::Error),
-    MountPluginLib(io_jail::Error),
-    MountRoot(io_jail::Error),
     NoRootDir,
-    ParsePivotRoot(io_jail::Error),
-    ParseSeccomp(io_jail::Error),
     PluginFailed(i32),
     PluginKill(SysError),
     PluginKilled(i32),
-    PluginRunJail(io_jail::Error),
     PluginSocketHup,
     PluginSocketPoll(SysError),
     PluginSocketRecv(SysError),
@@ -89,8 +77,6 @@ pub enum Error {
     PollContextAdd(SysError),
     RootNotAbsolute,
     RootNotDir,
-    SetGidMap(io_jail::Error),
-    SetUidMap(io_jail::Error),
     SigChild {
         pid: u32,
         signo: u32,
@@ -118,7 +104,6 @@ impl Display for Error {
             CloneVcpuPipe(e) => write!(f, "failed to clone vcpu pipe: {}", e),
             CreateEventFd(e) => write!(f, "failed to create eventfd: {}", e),
             CreateIrqChip(e) => write!(f, "failed to create kvm irqchip: {}", e),
-            CreateJail(e) => write!(f, "failed to create jail: {}", e),
             CreateKvm(e) => write!(f, "error creating Kvm: {}", e),
             CreateMainSocket(e) => write!(f, "error creating main request socket: {}", e),
             CreatePIT(e) => write!(f, "failed to create kvm PIT: {}", e),
@@ -134,13 +119,9 @@ impl Display for Error {
             EncodeResponse(e) => write!(f, "failed to encode plugin response: {}", e),
             Mount(e) | MountDev(e) | MountLib(e) | MountLib64(e) | MountPlugin(e)
             | MountPluginLib(e) | MountRoot(e) => write!(f, "failed to mount: {}", e),
-            NoRootDir => write!(f, "no root directory for jailed process to pivot root into"),
-            ParsePivotRoot(e) => write!(f, "failed to set jail pivot root: {}", e),
-            ParseSeccomp(e) => write!(f, "failed to parse jail seccomp filter: {}", e),
             PluginFailed(e) => write!(f, "plugin exited with error: {}", e),
             PluginKill(e) => write!(f, "error sending kill signal to plugin: {}", e),
             PluginKilled(e) => write!(f, "plugin exited with signal {}", e),
-            PluginRunJail(e) => write!(f, "failed to run jail: {}", e),
             PluginSocketHup => write!(f, "plugin request socket has been hung up"),
             PluginSocketPoll(e) => write!(f, "failed to poll plugin request sockets: {}", e),
             PluginSocketRecv(e) => write!(f, "failed to recv from plugin request socket: {}", e),
@@ -152,8 +133,6 @@ impl Display for Error {
             PollContextAdd(e) => write!(f, "failed to add fd to poll context: {}", e),
             RootNotAbsolute => write!(f, "path to the root directory must be absolute"),
             RootNotDir => write!(f, "specified root directory is not a directory"),
-            SetGidMap(e) => write!(f, "failed to set gidmap for jail: {}", e),
-            SetUidMap(e) => write!(f, "failed to set uidmap for jail: {}", e),
             SigChild {
                 pid,
                 signo,
@@ -263,50 +242,6 @@ fn mmap_to_sys_err(e: MmapError) -> SysError {
         MmapError::SystemCallFailed(e) => e,
         _ => SysError::new(EINVAL),
     }
-}
-
-fn create_plugin_jail(root: &Path, seccomp_policy: &Path) -> Result<Minijail> {
-    // All child jails run in a new user namespace without any users mapped,
-    // they run as nobody unless otherwise configured.
-    let mut j = Minijail::new().map_err(Error::CreateJail)?;
-    j.namespace_pids();
-    j.namespace_user();
-    j.uidmap(&format!("0 {0} 1", geteuid()))
-        .map_err(Error::SetUidMap)?;
-    j.gidmap(&format!("0 {0} 1", getegid()))
-        .map_err(Error::SetGidMap)?;
-    j.namespace_user_disable_setgroups();
-    // Don't need any capabilities.
-    j.use_caps(0);
-    // Create a new mount namespace with an empty root FS.
-    j.namespace_vfs();
-    j.enter_pivot_root(root).map_err(Error::ParsePivotRoot)?;
-    // Run in an empty network namespace.
-    j.namespace_net();
-    j.no_new_privs();
-    // Use TSYNC only for the side effect of it using SECCOMP_RET_TRAP, which will correctly kill
-    // the entire plugin process if a worker thread commits a seccomp violation.
-    j.set_seccomp_filter_tsync();
-    #[cfg(debug_assertions)]
-    j.log_seccomp_filter_failures();
-    j.parse_seccomp_filters(seccomp_policy)
-        .map_err(Error::ParseSeccomp)?;
-    j.use_seccomp_filter();
-    // Don't do init setup.
-    j.run_as_init();
-
-    // Create a tmpfs in the plugin's root directory so that we can bind mount it's executable
-    // file into it.  The size=67108864 is size=64*1024*1024 or size=64MB.
-    j.mount_with_data(
-        Path::new("none"),
-        Path::new("/"),
-        "tmpfs",
-        (MS_NOSUID | MS_NODEV | MS_NOEXEC) as usize,
-        "size=67108864",
-    )
-    .map_err(Error::MountRoot)?;
-
-    Ok(j)
 }
 
 /// Each `PluginObject` represents one object that was instantiated by the guest using the `Create`
@@ -520,58 +455,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
     // quickly.
     let sigchld_fd = SignalFd::new(SIGCHLD).map_err(Error::CreateSignalFd)?;
 
-    let jail = if cfg.sandbox {
-        // An empty directory for jailed plugin pivot root.
-        let root_path = match &cfg.plugin_root {
-            Some(dir) => dir,
-            None => Path::new("/var/empty"),
-        };
-
-        if root_path.is_relative() {
-            return Err(Error::RootNotAbsolute);
-        }
-
-        if !root_path.exists() {
-            return Err(Error::NoRootDir);
-        }
-
-        if !root_path.is_dir() {
-            return Err(Error::RootNotDir);
-        }
-
-        let policy_path = cfg.seccomp_policy_dir.join("plugin.policy");
-        let mut jail = create_plugin_jail(root_path, &policy_path)?;
-
-        // Update gid map of the jail if caller provided supplemental groups.
-        if !cfg.plugin_gid_maps.is_empty() {
-            let map = format!("0 {} 1", getegid())
-                + &cfg
-                    .plugin_gid_maps
-                    .into_iter()
-                    .map(|m| format!(",{} {} {}", m.inner, m.outer, m.count))
-                    .collect::<String>();
-            jail.gidmap(&map).map_err(Error::SetGidMap)?;
-        }
-
-        // Mount minimal set of devices (full, zero, urandom, etc). We can not use
-        // jail.mount_dev() here because crosvm may not be running with CAP_SYS_ADMIN.
-        let device_names = ["full", "null", "urandom", "zero"];
-        for name in &device_names {
-            let device = Path::new("/dev").join(&name);
-            jail.mount_bind(&device, &device, true)
-                .map_err(Error::MountDev)?;
-        }
-
-        for bind_mount in &cfg.plugin_mounts {
-            jail.mount_bind(&bind_mount.src, &bind_mount.dst, bind_mount.writable)
-                .map_err(Error::Mount)?;
-        }
-
-        Some(jail)
-    } else {
-        None
-    };
-
     let mut tap_interfaces: Vec<Tap> = Vec::new();
     if let Some(host_ip) = cfg.host_ip {
         if let Some(netmask) = cfg.netmask {
@@ -606,9 +489,7 @@ pub fn run_config(cfg: Config) -> Result<()> {
     vm.create_irq_chip().map_err(Error::CreateIrqChip)?;
     vm.create_pit().map_err(Error::CreatePIT)?;
 
-    let mut plugin = Process::new(vcpu_count, plugin_path, &plugin_args, jail)?;
-    // Now that the jail for the plugin has been created and we had a chance to adjust gids there,
-    // we can drop all our capabilities in case we had any.
+    let mut plugin = Process::new(vcpu_count, plugin_path, &plugin_args)?;
     drop_capabilities().map_err(Error::DropCapabilities)?;
 
     let mut res = Ok(());

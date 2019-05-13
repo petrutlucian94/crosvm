@@ -22,7 +22,6 @@ use libc::{pid_t, waitpid, EINVAL, ENODATA, ENOTTY, WEXITSTATUS, WIFEXITED, WNOH
 use protobuf;
 use protobuf::Message;
 
-use io_jail::Minijail;
 use kvm::{dirty_log_bitmap_size, Datamatch, IoeventAddress, IrqRoute, IrqSource, PicId, Vm};
 use kvm_sys::{kvm_clock_data, kvm_ioapic_state, kvm_pic_state, kvm_pit_state2};
 use protos::plugin::*;
@@ -134,15 +133,10 @@ impl Process {
     ///
     /// This will immediately spawn the plugin process and wait for the child to signal that it is
     /// ready to start. This call may block indefinitely.
-    ///
-    /// Set the `jail` argument to spawn the plugin process within the preconfigured jail.
-    /// Due to an API limitation in libminijail necessitating that this function set an environment
-    /// variable, this function is not thread-safe.
     pub fn new(
         cpu_count: u32,
         cmd: &Path,
         args: &[&str],
-        jail: Option<Minijail>,
     ) -> Result<Process> {
         let (request_socket, child_socket) =
             new_seqpacket_pair().map_err(Error::CreateMainSocket)?;
@@ -161,18 +155,12 @@ impl Process {
             per_vcpu_states.push(Default::default());
         }
 
-        let plugin_pid = match jail {
-            Some(jail) => {
-                set_var("CROSVM_SOCKET", child_socket.as_raw_fd().to_string());
-                jail.run(cmd, &[0, 1, 2, child_socket.as_raw_fd()], args)
-                    .map_err(Error::PluginRunJail)?
-            }
-            None => Command::new(cmd)
-                .args(args)
-                .env("CROSVM_SOCKET", child_socket.as_raw_fd().to_string())
-                .spawn()
-                .map_err(Error::PluginSpawn)?
-                .id() as pid_t,
+        let plugin_pid = Command::new(cmd)
+            .args(args)
+            .env("CROSVM_SOCKET", child_socket.as_raw_fd().to_string())
+            .spawn()
+            .map_err(Error::PluginSpawn)?
+            .id() as pid_t,
         };
 
         Ok(Process {

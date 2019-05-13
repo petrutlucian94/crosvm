@@ -18,7 +18,6 @@ use devices::{
     Bus, BusDevice, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot, ProxyDevice,
     Serial,
 };
-use io_jail::Minijail;
 use kvm::{IoeventAddress, Kvm, Vcpu, Vm};
 use resources::SystemAllocator;
 use sync::Mutex;
@@ -53,9 +52,9 @@ pub struct RunnableLinuxVm {
 }
 
 /// The device and optional jail.
+/// TODO(lpetrut): no longer using jails, this wrapper can be dropped.
 pub struct VirtioDeviceStub {
     pub dev: Box<dyn VirtioDevice>,
-    pub jail: Option<Minijail>,
 }
 
 /// Trait which is implemented for each Linux Architecture in order to
@@ -76,7 +75,7 @@ pub trait LinuxArch {
         create_devices: F,
     ) -> Result<RunnableLinuxVm, Self::Error>
     where
-        F: FnOnce(&GuestMemory, &EventFd) -> Result<Vec<(Box<dyn PciDevice>, Option<Minijail>)>, E>,
+        F: FnOnce(&GuestMemory, &EventFd) -> Result<Vec<(Box<dyn PciDevice>)>, E>,
         E: StdError + 'static;
 }
 
@@ -99,8 +98,6 @@ pub enum DeviceRegistrationError {
     RegisterIoevent(sys_util::Error),
     /// Failed to register irq eventfd with VM.
     RegisterIrqfd(sys_util::Error),
-    /// Failed to initialize proxy device for jailed device.
-    ProxyDeviceCreation(devices::ProxyError),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
     /// No more IRQs are available.
@@ -137,7 +134,7 @@ impl Display for DeviceRegistrationError {
 
 /// Creates a root PCI device for use by this Vm.
 pub fn generate_pci_root(
-    devices: Vec<(Box<dyn PciDevice>, Option<Minijail>)>,
+    devices: Vec<(Box<dyn PciDevice>)>,
     mmio_bus: &mut Bus,
     resources: &mut SystemAllocator,
     vm: &mut Vm,
@@ -146,7 +143,7 @@ pub fn generate_pci_root(
     let mut root = PciRoot::new();
     let mut pci_irqs = Vec::new();
     let mut pid_labels = BTreeMap::new();
-    for (dev_idx, (mut device, jail)) in devices.into_iter().enumerate() {
+    for (dev_idx, mut device) in devices.into_iter().enumerate() {
         // Only support one bus.
         device.assign_bus_dev(0, dev_idx as u8);
 
@@ -187,15 +184,10 @@ pub fn generate_pci_root(
                 .map_err(DeviceRegistrationError::RegisterIoevent)?;
             keep_fds.push(event.as_raw_fd());
         }
-        let arced_dev: Arc<Mutex<dyn BusDevice>> = if let Some(jail) = jail {
-            let proxy = ProxyDevice::new(device, &jail, keep_fds)
-                .map_err(DeviceRegistrationError::ProxyDeviceCreation)?;
-            pid_labels.insert(proxy.pid() as u32, proxy.debug_label());
-            Arc::new(Mutex::new(proxy))
-        } else {
-            device.on_sandboxed();
-            Arc::new(Mutex::new(device))
-        };
+        // TODO(lpetrut): we can most probably drop this as well.
+        device.on_sandboxed();
+        Arc::new(Mutex::new(device))
+
         root.add_device(arced_dev.clone());
         for range in &ranges {
             mmio_bus

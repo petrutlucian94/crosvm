@@ -25,7 +25,6 @@ default-no-sandbox = []
 gpu = ["devices/gpu"]
 gpu-forward = ["render_node_forward"]
 plugin = ["protos/plugin", "crosvm_plugin", "protobuf"]
-sandboxed-libusb = ["devices/sandboxed-libusb", "vm_control/sandboxed-libusb"]
 tpm = ["devices/tpm"]
 wl-dmabuf = ["devices/wl-dmabuf", "gpu_buffer", "resources/wl-dmabuf"]
 
@@ -39,7 +38,6 @@ data_model = "*"
 devices = { path = "devices" }
 enumn = { path = "enumn" }
 gpu_buffer = { path = "gpu_buffer", optional = true }
-io_jail = { path = "io_jail" }
 kernel_cmdline = { path = "kernel_cmdline" }
 kernel_loader = { path = "kernel_loader" }
 kvm = { path = "kvm" }

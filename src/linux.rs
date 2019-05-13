@@ -23,7 +23,6 @@ use libc::{self, c_int, gid_t, uid_t};
 
 use devices::virtio::{self, VirtioDevice};
 use devices::{self, HostBackendDeviceProvider, PciDevice, VirtioPciDevice, XhciController};
-use io_jail::{self, Minijail};
 use kvm::*;
 use msg_socket::{MsgError, MsgReceiver, MsgSender, MsgSocket};
 use net_util::{Error as NetError, MacAddress, Tap};
@@ -46,7 +45,7 @@ use vhost;
 use vm_control::{
     BalloonControlCommand, BalloonControlRequestSocket, BalloonControlResponseSocket,
     DiskControlCommand, DiskControlRequestSocket, DiskControlResponseSocket, DiskControlResult,
-    UsbControlSocket, VmControlResponseSocket, VmRunMode, WlControlRequestSocket,
+    VmControlResponseSocket, VmRunMode, WlControlRequestSocket,
     WlControlResponseSocket, WlDriverRequest, WlDriverResponse,
 };
 
@@ -82,10 +81,7 @@ pub enum Error {
     CreateTapDevice(NetError),
     CreateTimerFd(sys_util::Error),
     CreateTpmStorage(PathBuf, io::Error),
-    CreateUsbProvider(devices::usb::host_backend::error::Error),
     DetectImageType(qcow::Error),
-    DeviceJail(io_jail::Error),
-    DevicePivotRoot(io_jail::Error),
     Disk(io::Error),
     DiskImageLock(sys_util::Error),
     DropCapabilities(sys_util::Error),
@@ -93,7 +89,6 @@ pub enum Error {
     InputEventsOpen(std::io::Error),
     InvalidFdPath,
     InvalidWaylandPath,
-    IoJail(io_jail::Error),
     LoadKernel(Box<dyn StdError>),
     NetDeviceNew(virtio::NetError),
     OpenAndroidFstab(PathBuf, io::Error),
@@ -119,8 +114,6 @@ pub enum Error {
     ReserveMemory(sys_util::Error),
     ResetTimerFd(sys_util::Error),
     RngDeviceNew(virtio::RngError),
-    SettingGidMap(io_jail::Error),
-    SettingUidMap(io_jail::Error),
     SignalFd(sys_util::SignalFdError),
     SpawnVcpu(io::Error),
     TimerFd(sys_util::Error),
@@ -156,9 +149,7 @@ impl Display for Error {
             CreateTpmStorage(p, e) => {
                 write!(f, "failed to create tpm storage dir {}: {}", p.display(), e)
             }
-            CreateUsbProvider(e) => write!(f, "failed to create usb provider: {}", e),
             DetectImageType(e) => write!(f, "failed to detect disk image type: {}", e),
-            DeviceJail(e) => write!(f, "failed to jail device: {}", e),
             DevicePivotRoot(e) => write!(f, "failed to pivot root device: {}", e),
             Disk(e) => write!(f, "failed to load disk image: {}", e),
             DiskImageLock(e) => write!(f, "failed to lock disk image: {}", e),
@@ -167,7 +158,6 @@ impl Display for Error {
             InputEventsOpen(e) => write!(f, "failed to open event device: {}", e),
             InvalidFdPath => write!(f, "failed parsing a /proc/self/fd/*"),
             InvalidWaylandPath => write!(f, "wayland socket path has no parent or file name"),
-            IoJail(e) => write!(f, "{}", e),
             LoadKernel(e) => write!(f, "failed to load kernel: {}", e),
             NetDeviceNew(e) => write!(f, "failed to set up virtio networking: {}", e),
             OpenAndroidFstab(p, e) => write!(
@@ -180,7 +170,6 @@ impl Display for Error {
             OpenKernel(p, e) => write!(f, "failed to open kernel image {}: {}", p.display(), e),
             OpenVinput(p, e) => write!(f, "failed to open vinput device {}: {}", p.display(), e),
             P9DeviceNew(e) => write!(f, "failed to create 9p device: {}", e),
-            PivotRootDoesntExist(p) => write!(f, "{} doesn't exist, can't jail devices.", p),
             PollContextAdd(e) => write!(f, "failed to add fd to poll context: {}", e),
             PollContextDelete(e) => write!(f, "failed to remove fd from poll context: {}", e),
             QcowDeviceCreate(e) => write!(f, "failed to read qcow formatted file {}", e),
@@ -220,12 +209,6 @@ impl Display for Error {
     }
 }
 
-impl From<io_jail::Error> for Error {
-    fn from(err: io_jail::Error) -> Self {
-        Error::IoJail(err)
-    }
-}
-
 impl std::error::Error for Error {}
 
 type Result<T> = std::result::Result<T, Error>;
@@ -248,50 +231,6 @@ impl AsRef<UnixSeqpacket> for TaggedControlSocket {
 impl AsRawFd for TaggedControlSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.as_ref().as_raw_fd()
-    }
-}
-
-fn create_base_minijail(root: &Path, seccomp_policy: &Path) -> Result<Minijail> {
-    // All child jails run in a new user namespace without any users mapped,
-    // they run as nobody unless otherwise configured.
-    let mut j = Minijail::new().map_err(Error::DeviceJail)?;
-    j.namespace_pids();
-    j.namespace_user();
-    j.namespace_user_disable_setgroups();
-    // Don't need any capabilities.
-    j.use_caps(0);
-    // Create a new mount namespace with an empty root FS.
-    j.namespace_vfs();
-    j.enter_pivot_root(root).map_err(Error::DevicePivotRoot)?;
-    // Run in an empty network namespace.
-    j.namespace_net();
-    // Apply the block device seccomp policy.
-    j.no_new_privs();
-    // Use TSYNC only for the side effect of it using SECCOMP_RET_TRAP, which will correctly kill
-    // the entire device process if a worker thread commits a seccomp violation.
-    j.set_seccomp_filter_tsync();
-    #[cfg(debug_assertions)]
-    j.log_seccomp_filter_failures();
-    j.parse_seccomp_filters(seccomp_policy)
-        .map_err(Error::DeviceJail)?;
-    j.use_seccomp_filter();
-    // Don't do init setup.
-    j.run_as_init();
-    Ok(j)
-}
-
-fn simple_jail(cfg: &Config, policy: &str) -> Result<Option<Minijail>> {
-    if cfg.sandbox {
-        let pivot_root: &str = option_env!("DEFAULT_PIVOT_ROOT").unwrap_or("/var/empty");
-        // A directory for a jailed device's pivot root.
-        let root_path = Path::new(pivot_root);
-        if !root_path.exists() {
-            return Err(Error::PivotRootDoesntExist(pivot_root));
-        }
-        let policy_path: PathBuf = cfg.seccomp_policy_dir.join(policy);
-        Ok(Some(create_base_minijail(root_path, &policy_path)?))
-    } else {
-        Ok(None)
     }
 }
 
@@ -340,7 +279,6 @@ fn create_block_device(
 
     Ok(VirtioDeviceStub {
         dev,
-        jail: simple_jail(&cfg, "block_device.policy")?,
     })
 }
 
@@ -349,7 +287,6 @@ fn create_rng_device(cfg: &Config) -> DeviceResult {
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "rng_device.policy")?,
     })
 }
 
@@ -361,44 +298,14 @@ fn create_tpm_device(cfg: &Config) -> DeviceResult {
     use sys_util::chown;
 
     let tpm_storage: PathBuf;
-    let mut tpm_jail = simple_jail(&cfg, "tpm_device.policy")?;
 
-    match &mut tpm_jail {
-        Some(jail) => {
-            // Create a tmpfs in the device's root directory for tpm
-            // simulator storage. The size is 20*1024, or 20 KB.
-            jail.mount_with_data(
-                Path::new("none"),
-                Path::new("/"),
-                "tmpfs",
-                (libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC) as usize,
-                "size=20480",
-            )?;
-
-            let crosvm_ids = add_crosvm_user_to_jail(jail, "tpm")?;
-
-            let pid = process::id();
-            let tpm_pid_dir = format!("/run/vm/tpm.{}", pid);
-            tpm_storage = Path::new(&tpm_pid_dir).to_owned();
-            fs::create_dir_all(&tpm_storage)
-                .map_err(|e| Error::CreateTpmStorage(tpm_storage.to_owned(), e))?;
-            let tpm_pid_dir_c = CString::new(tpm_pid_dir).expect("no nul bytes");
-            chown(&tpm_pid_dir_c, crosvm_ids.uid, crosvm_ids.gid)
-                .map_err(Error::ChownTpmStorage)?;
-
-            jail.mount_bind(&tpm_storage, &tpm_storage, true)?;
-        }
-        None => {
-            // Path used inside cros_sdk which does not have /run/vm.
-            tpm_storage = Path::new("/tmp/tpm-simulator").to_owned();
-        }
-    }
+    // Path used inside cros_sdk which does not have /run/vm.
+    tpm_storage = Path::new("/tmp/tpm-simulator").to_owned();
 
     let dev = virtio::Tpm::new(tpm_storage);
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: tpm_jail,
     })
 }
 
@@ -412,7 +319,6 @@ fn create_single_touch_device(cfg: &Config, single_touch_spec: &TouchDeviceOptio
         .map_err(Error::InputDeviceNew)?;
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "input_device.policy")?,
     })
 }
 
@@ -427,7 +333,6 @@ fn create_trackpad_device(cfg: &Config, trackpad_spec: &TouchDeviceOption) -> De
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "input_device.policy")?,
     })
 }
 
@@ -441,7 +346,6 @@ fn create_mouse_device(cfg: &Config, mouse_socket: &Path) -> DeviceResult {
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "input_device.policy")?,
     })
 }
 
@@ -455,7 +359,6 @@ fn create_keyboard_device(cfg: &Config, keyboard_socket: &Path) -> DeviceResult 
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "input_device.policy")?,
     })
 }
 
@@ -470,7 +373,6 @@ fn create_vinput_device(cfg: &Config, dev_path: &Path) -> DeviceResult {
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "input_device.policy")?,
     })
 }
 
@@ -479,7 +381,6 @@ fn create_balloon_device(cfg: &Config, socket: BalloonControlResponseSocket) -> 
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "balloon_device.policy")?,
     })
 }
 
@@ -494,7 +395,6 @@ fn create_tap_net_device(cfg: &Config, tap_fd: RawFd) -> DeviceResult {
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail: simple_jail(&cfg, "net_device.policy")?,
     })
 }
 
@@ -516,172 +416,18 @@ fn create_net_device(
         Box::new(dev) as Box<dyn VirtioDevice>
     };
 
-    let policy = if cfg.vhost_net {
-        "vhost_net_device.policy"
-    } else {
-        "net_device.policy"
-    };
-
     Ok(VirtioDeviceStub {
         dev,
-        jail: simple_jail(&cfg, policy)?,
-    })
-}
-
-#[cfg(feature = "gpu")]
-fn create_gpu_device(
-    cfg: &Config,
-    exit_evt: &EventFd,
-    gpu_socket: virtio::resource_bridge::ResourceResponseSocket,
-    wayland_socket_path: &Path,
-) -> DeviceResult {
-    let jailed_wayland_path = Path::new("/wayland-0");
-
-    let dev = virtio::Gpu::new(
-        exit_evt.try_clone().map_err(Error::CloneEventFd)?,
-        Some(gpu_socket),
-        if cfg.sandbox {
-            &jailed_wayland_path
-        } else {
-            wayland_socket_path
-        },
-    );
-
-    let jail = match simple_jail(&cfg, "gpu_device.policy")? {
-        Some(mut jail) => {
-            // Create a tmpfs in the device's root directory so that we can bind mount the
-            // dri directory into it.  The size=67108864 is size=64*1024*1024 or size=64MB.
-            jail.mount_with_data(
-                Path::new("none"),
-                Path::new("/"),
-                "tmpfs",
-                (libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC) as usize,
-                "size=67108864",
-            )?;
-
-            // Device nodes required for DRM.
-            let sys_dev_char_path = Path::new("/sys/dev/char");
-            jail.mount_bind(sys_dev_char_path, sys_dev_char_path, false)?;
-            let sys_devices_path = Path::new("/sys/devices");
-            jail.mount_bind(sys_devices_path, sys_devices_path, false)?;
-            let drm_dri_path = Path::new("/dev/dri");
-            jail.mount_bind(drm_dri_path, drm_dri_path, false)?;
-
-            // Libraries that are required when mesa drivers are dynamically loaded.
-            let lib_path = Path::new("/lib64");
-            jail.mount_bind(lib_path, lib_path, false)?;
-            let usr_lib_path = Path::new("/usr/lib64");
-            jail.mount_bind(usr_lib_path, usr_lib_path, false)?;
-
-            // Bind mount the wayland socket into jail's root. This is necessary since each
-            // new wayland context must open() the socket.
-            jail.mount_bind(wayland_socket_path, jailed_wayland_path, true)?;
-
-            add_crosvm_user_to_jail(&mut jail, "gpu")?;
-
-            Some(jail)
-        }
-        None => None,
-    };
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-        jail,
-    })
-}
-
-fn create_wayland_device(
-    cfg: &Config,
-    socket_path: &Path,
-    socket: WlControlRequestSocket,
-    resource_bridge: Option<virtio::resource_bridge::ResourceRequestSocket>,
-) -> DeviceResult {
-    let wayland_socket_dir = socket_path.parent().ok_or(Error::InvalidWaylandPath)?;
-    let wayland_socket_name = socket_path.file_name().ok_or(Error::InvalidWaylandPath)?;
-    let jailed_wayland_dir = Path::new("/wayland");
-    let jailed_wayland_path = jailed_wayland_dir.join(wayland_socket_name);
-
-    let dev = virtio::Wl::new(
-        if cfg.sandbox {
-            &jailed_wayland_path
-        } else {
-            socket_path
-        },
-        socket,
-        resource_bridge,
-    )
-    .map_err(Error::WaylandDeviceNew)?;
-
-    let jail = match simple_jail(&cfg, "wl_device.policy")? {
-        Some(mut jail) => {
-            // Create a tmpfs in the device's root directory so that we can bind mount the wayland
-            // socket directory into it. The size=67108864 is size=64*1024*1024 or size=64MB.
-            jail.mount_with_data(
-                Path::new("none"),
-                Path::new("/"),
-                "tmpfs",
-                (libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC) as usize,
-                "size=67108864",
-            )?;
-
-            // Bind mount the wayland socket's directory into jail's root. This is necessary since
-            // each new wayland context must open() the socket. If the wayland socket is ever
-            // destroyed and remade in the same host directory, new connections will be possible
-            // without restarting the wayland device.
-            jail.mount_bind(wayland_socket_dir, jailed_wayland_dir, true)?;
-
-            add_crosvm_user_to_jail(&mut jail, "Wayland")?;
-
-            Some(jail)
-        }
-        None => None,
-    };
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-        jail,
-    })
-}
-
-fn create_vhost_vsock_device(cfg: &Config, cid: u64, mem: &GuestMemory) -> DeviceResult {
-    let dev = virtio::vhost::Vsock::new(cid, mem).map_err(Error::VhostVsockDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-        jail: simple_jail(&cfg, "vhost_vsock_device.policy")?,
     })
 }
 
 fn create_9p_device(cfg: &Config, chronos: Ids, src: &Path, tag: &str) -> DeviceResult {
-    let (jail, root) = match simple_jail(&cfg, "9p_device.policy")? {
-        Some(mut jail) => {
-            //  The shared directory becomes the root of the device's file system.
-            let root = Path::new("/");
-            jail.mount_bind(src, root, true)?;
-
-            // Set the uid/gid for the jailed process, and give a basic id map. This
-            // is required for the above bind mount to work.
-            jail.change_uid(chronos.uid);
-            jail.change_gid(chronos.gid);
-            jail.uidmap(&format!("{0} {0} 1", chronos.uid))
-                .map_err(Error::SettingUidMap)?;
-            jail.gidmap(&format!("{0} {0} 1", chronos.gid))
-                .map_err(Error::SettingGidMap)?;
-
-            (Some(jail), root)
-        }
-        None => {
-            // There's no bind mount so we tell the server to treat the source directory as the
-            // root.
-            (None, src)
-        }
-    };
-
-    let dev = virtio::P9::new(root, tag).map_err(Error::P9DeviceNew)?;
+    // There's no bind mount so we tell the server to treat the source directory as the
+    // root.
+    let dev = virtio::P9::new(src, tag).map_err(Error::P9DeviceNew)?;
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
-        jail,
     })
 }
 
@@ -792,8 +538,7 @@ fn create_devices(
     wayland_device_socket: WlControlRequestSocket,
     balloon_device_socket: BalloonControlResponseSocket,
     disk_device_sockets: &mut Vec<DiskControlResponseSocket>,
-    usb_provider: HostBackendDeviceProvider,
-) -> DeviceResult<Vec<(Box<dyn PciDevice>, Option<Minijail>)>> {
+) -> DeviceResult<Vec<(Box<dyn PciDevice>)>> {
     let stubs = create_virtio_devices(
         &cfg,
         mem,
@@ -808,12 +553,8 @@ fn create_devices(
     for stub in stubs {
         let dev = VirtioPciDevice::new(mem.clone(), stub.dev).map_err(Error::VirtioPciDev)?;
         let dev = Box::new(dev) as Box<dyn PciDevice>;
-        pci_devices.push((dev, stub.jail));
+        pci_devices.push(dev);
     }
-
-    // Create xhci controller.
-    let usb_controller = Box::new(XhciController::new(mem.clone(), usb_provider));
-    pci_devices.push((usb_controller, simple_jail(&cfg, "xhci.policy")?));
 
     Ok(pci_devices)
 }
@@ -847,40 +588,6 @@ fn get_chronos_ids() -> Ids {
         uid: chronos_uid,
         gid: chronos_gid,
     }
-}
-
-// Set the uid/gid for the jailed process and give a basic id map. This is
-// required for bind mounts to work.
-fn add_crosvm_user_to_jail(jail: &mut Minijail, feature: &str) -> Result<Ids> {
-    let crosvm_user_group = CStr::from_bytes_with_nul(b"crosvm\0").unwrap();
-
-    let crosvm_uid = match get_user_id(&crosvm_user_group) {
-        Ok(u) => u,
-        Err(e) => {
-            warn!("falling back to current user id for {}: {}", feature, e);
-            geteuid()
-        }
-    };
-
-    let crosvm_gid = match get_group_id(&crosvm_user_group) {
-        Ok(u) => u,
-        Err(e) => {
-            warn!("falling back to current group id for {}: {}", feature, e);
-            getegid()
-        }
-    };
-
-    jail.change_uid(crosvm_uid);
-    jail.change_gid(crosvm_gid);
-    jail.uidmap(&format!("{0} {0} 1", crosvm_uid))
-        .map_err(Error::SettingUidMap)?;
-    jail.gidmap(&format!("{0} {0} 1", crosvm_gid))
-        .map_err(Error::SettingGidMap)?;
-
-    Ok(Ids {
-        uid: crosvm_uid,
-        gid: crosvm_gid,
-    })
 }
 
 fn raw_fd_from_path(path: &Path) -> Result<RawFd> {
@@ -1094,15 +801,6 @@ fn file_to_u64<P: AsRef<Path>>(path: P) -> io::Result<u64> {
 }
 
 pub fn run_config(cfg: Config) -> Result<()> {
-    if cfg.sandbox {
-        // Printing something to the syslog before entering minijail so that libc's syslogger has a
-        // chance to open files necessary for its operation, like `/etc/localtime`. After jailing,
-        // access to those files will not be possible.
-        info!("crosvm entering multiprocess mode");
-    }
-
-    let (usb_control_socket, usb_provider) =
-        HostBackendDeviceProvider::new().map_err(Error::CreateUsbProvider)?;
     // Masking signals is inherently dangerous, since this can persist across clones/execs. Do this
     // before any jailed devices have been spawned, so that we can catch any of them that fail very
     // quickly.
@@ -1165,8 +863,7 @@ pub fn run_config(cfg: Config) -> Result<()> {
             e,
             wayland_device_socket,
             balloon_device_socket,
-            &mut disk_device_sockets,
-            usb_provider,
+            &mut disk_device_sockets
         )
     })
     .map_err(Error::BuildVm)?;
@@ -1216,7 +913,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
         control_sockets,
         balloon_host_socket,
         &disk_host_sockets,
-        usb_control_socket,
         sigchld_fd,
         _render_node_host,
         sandbox,
@@ -1229,7 +925,6 @@ fn run_control(
     mut control_sockets: Vec<TaggedControlSocket>,
     balloon_host_socket: BalloonControlRequestSocket,
     disk_host_sockets: &[DiskControlRequestSocket],
-    usb_control_socket: UsbControlSocket,
     sigchld_fd: SignalFd,
     _render_node_host: RenderNodeHost,
     sandbox: bool,
@@ -1512,7 +1207,6 @@ fn run_control(
                                         &mut run_mode_opt,
                                         &balloon_host_socket,
                                         disk_host_sockets,
-                                        &usb_control_socket,
                                     );
                                     if let Err(e) = socket.send(&response) {
                                         error!("failed to send VmResponse: {}", e);
