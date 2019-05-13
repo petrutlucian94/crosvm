@@ -12,7 +12,6 @@ mod pci;
 mod pic;
 mod pit;
 pub mod pl030;
-mod proxy;
 #[macro_use]
 mod register_space;
 mod serial;
@@ -31,7 +30,5 @@ pub use self::pci::{
 pub use self::pic::Pic;
 pub use self::pit::{Pit, PitError};
 pub use self::pl030::Pl030;
-pub use self::proxy::Error as ProxyError;
-pub use self::proxy::ProxyDevice;
 pub use self::serial::Serial;
 pub use self::virtio::VirtioPciDevice;

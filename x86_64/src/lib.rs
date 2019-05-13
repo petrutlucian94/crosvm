@@ -303,7 +303,7 @@ impl arch::LinuxArch for X8664arch {
         E: StdError + 'static,
     {
         let mut resources =
-            Self::get_resource_allocator(components.memory_size, components.wayland_dmabuf);
+            Self::get_resource_allocator(components.memory_size);
         let mem = Self::setup_memory(components.memory_size)?;
         let kvm = Kvm::new().map_err(Error::CreateKvm)?;
         let mut vm = Self::create_vm(&kvm, split_irqchip, mem.clone())?;
@@ -529,14 +529,13 @@ impl X8664arch {
     }
 
     /// Returns a system resource allocator.
-    fn get_resource_allocator(mem_size: u64, gpu_allocation: bool) -> SystemAllocator {
+    fn get_resource_allocator(mem_size: u64) -> SystemAllocator {
         const MMIO_BASE: u64 = 0xe0000000;
         let device_addr_start = Self::get_base_dev_pfn(mem_size) * sys_util::pagesize() as u64;
         SystemAllocator::builder()
             .add_io_addresses(0xc000, 0x10000)
             .add_mmio_addresses(MMIO_BASE, 0x100000)
             .add_device_addresses(device_addr_start, u64::max_value() - device_addr_start)
-            .create_allocator(X86_64_IRQ_BASE, gpu_allocation)
             .unwrap()
     }
 

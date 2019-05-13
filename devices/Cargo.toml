@@ -4,19 +4,11 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 edition = "2018"
 
-[features]
-gpu = ["gpu_buffer", "gpu_display", "gpu_renderer"]
-tpm = ["protos/trunks", "tpm2"]
-wl-dmabuf = []
-
 [dependencies]
 bit_field = { path = "../bit_field" }
 byteorder = "*"
 data_model = { path = "../data_model" }
 enumn = { path = "../enumn" }
-gpu_buffer = { path = "../gpu_buffer", optional = true }
-gpu_display = { path = "../gpu_display", optional = true }
-gpu_renderer = { path = "../gpu_renderer", optional = true }
 kvm = { path = "../kvm" }
 libc = "*"
 msg_on_socket_derive = { path = "../msg_socket/msg_on_socket_derive" }
@@ -29,7 +21,6 @@ remain = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
-tpm2 = { path = "../tpm2", optional = true }
 vhost = { path = "../vhost" }
 virtio_sys = { path = "../virtio_sys" }
 vm_control = { path = "../vm_control" }

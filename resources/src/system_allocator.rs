@@ -5,7 +5,6 @@
 use sys_util::pagesize;
 
 use crate::address_allocator::AddressAllocator;
-use crate::gpu_allocator::{self, GpuMemoryAllocator};
 use crate::{Alloc, Error, Result};
 
 /// Manages allocating system resources such as address space and interrupt numbers.
@@ -41,7 +40,6 @@ pub struct SystemAllocator {
     io_address_space: Option<AddressAllocator>,
     device_address_space: AddressAllocator,
     mmio_address_space: AddressAllocator,
-    gpu_allocator: Option<Box<dyn GpuMemoryAllocator>>,
     next_irq: u32,
     next_anon_id: usize,
 }
@@ -57,7 +55,6 @@ impl SystemAllocator {
     /// * `dev_size` - The size of device memory.
     /// * `mmio_base` - The starting address of MMIO space.
     /// * `mmio_size` - The size of MMIO space.
-    /// * `create_gpu_allocator` - If true, enable gpu memory allocation.
     /// * `first_irq` - The first irq number to give out.
     fn new(
         io_base: Option<u64>,
@@ -66,7 +63,6 @@ impl SystemAllocator {
         dev_size: u64,
         mmio_base: u64,
         mmio_size: u64,
-        create_gpu_allocator: bool,
         first_irq: u32,
     ) -> Result<Self> {
         let page_size = pagesize() as u64;
@@ -78,11 +74,6 @@ impl SystemAllocator {
             },
             device_address_space: AddressAllocator::new(dev_base, dev_size, Some(page_size))?,
             mmio_address_space: AddressAllocator::new(mmio_base, mmio_size, Some(page_size))?,
-            gpu_allocator: if create_gpu_allocator {
-                gpu_allocator::create_gpu_memory_allocator().map_err(Error::CreateGpuAllocator)?
-            } else {
-                None
-            },
             next_irq: first_irq,
             next_anon_id: 0,
         })
@@ -116,11 +107,6 @@ impl SystemAllocator {
     /// Gets an allocator to be used for MMIO memory.
     pub fn mmio_allocator(&mut self) -> &mut AddressAllocator {
         &mut self.mmio_address_space
-    }
-
-    /// Gets an allocator to be used for GPU memory.
-    pub fn gpu_memory_allocator(&self) -> Option<&dyn GpuMemoryAllocator> {
-        self.gpu_allocator.as_ref().map(|v| v.as_ref())
     }
 
     /// Gets a unique anonymous allocation
@@ -173,7 +159,6 @@ impl SystemAllocatorBuilder {
     pub fn create_allocator(
         &self,
         first_irq: u32,
-        gpu_allocation: bool,
     ) -> Result<SystemAllocator> {
         SystemAllocator::new(
             self.io_base,
@@ -182,7 +167,6 @@ impl SystemAllocatorBuilder {
             self.device_size.ok_or(Error::MissingDeviceAddresses)?,
             self.mmio_base.ok_or(Error::MissingMMIOAddresses)?,
             self.mmio_size.ok_or(Error::MissingMMIOAddresses)?,
-            gpu_allocation,
             first_irq,
         )
     }

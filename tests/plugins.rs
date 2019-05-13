@@ -92,8 +92,6 @@ fn run_plugin(bin_path: &Path, with_sandbox: bool) {
         "255.255.255.252",
         "--mac",
         "de:21:e8:47:6b:6a",
-        "--seccomp-policy-dir",
-        "tests",
         "--plugin",
     ])
     .arg(

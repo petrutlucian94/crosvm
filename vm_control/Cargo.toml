@@ -6,6 +6,7 @@ edition = "2018"
 
 [features]
 
+
 [dependencies]
 byteorder = "*"
 data_model = { path = "../data_model" }

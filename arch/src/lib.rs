@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use devices::virtio::VirtioDevice;
 use devices::{
-    Bus, BusDevice, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot, ProxyDevice,
+    Bus, BusDevice, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
     Serial,
 };
 use kvm::{IoeventAddress, Kvm, Vcpu, Vm};
@@ -33,7 +33,6 @@ pub struct VmComponents {
     pub android_fstab: Option<File>,
     pub initrd_image: Option<File>,
     pub extra_kernel_params: Vec<String>,
-    pub wayland_dmabuf: bool,
 }
 
 /// Holds the elements needed to run a Linux VM. Created by `build_vm`.
@@ -122,7 +121,6 @@ impl Display for DeviceRegistrationError {
             MmioInsert(e) => write!(f, "failed to add to mmio bus: {}", e),
             RegisterIoevent(e) => write!(f, "failed to register ioevent to VM: {}", e),
             RegisterIrqfd(e) => write!(f, "failed to register irq eventfd to VM: {}", e),
-            ProxyDeviceCreation(e) => write!(f, "failed to create proxy device: {}", e),
             IrqsExhausted => write!(f, "no more IRQs are available"),
             AddrsExhausted => write!(f, "no more addresses are available"),
             RegisterDeviceCapabilities(e) => {

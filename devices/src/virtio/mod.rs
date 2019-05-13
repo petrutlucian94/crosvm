@@ -6,15 +6,11 @@
 
 mod balloon;
 mod block;
-#[cfg(feature = "gpu")]
-mod gpu;
 mod input;
 mod net;
 mod p9;
 mod queue;
 mod rng;
-#[cfg(feature = "tpm")]
-mod tpm;
 mod virtio_device;
 mod virtio_pci_common_config;
 mod virtio_pci_device;
@@ -25,15 +21,11 @@ pub mod vhost;
 
 pub use self::balloon::*;
 pub use self::block::*;
-#[cfg(feature = "gpu")]
-pub use self::gpu::*;
 pub use self::input::*;
 pub use self::net::*;
 pub use self::p9::*;
 pub use self::queue::*;
 pub use self::rng::*;
-#[cfg(feature = "tpm")]
-pub use self::tpm::*;
 pub use self::virtio_device::*;
 pub use self::virtio_pci_device::*;
 pub use self::wl::*;
@@ -54,10 +46,6 @@ const TYPE_GPU: u32 = 16;
 const TYPE_9P: u32 = 9;
 const TYPE_INPUT: u32 = 18;
 const TYPE_VSOCK: u32 = 19;
-// Additional types invented by crosvm
-const TYPE_WL: u32 = 30;
-#[cfg(feature = "tpm")]
-const TYPE_TPM: u32 = 31;
 
 const VIRTIO_F_VERSION_1: u32 = 32;
 

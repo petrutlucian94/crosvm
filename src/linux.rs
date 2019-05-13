@@ -29,8 +29,6 @@ use net_util::{Error as NetError, MacAddress, Tap};
 use qcow::{self, ImageType, QcowFile};
 use rand_ish::SimpleRng;
 use remain::sorted;
-#[cfg(feature = "gpu-forward")]
-use resources::Alloc;
 use sync::{Condvar, Mutex};
 use sys_util::net::{UnixSeqpacket, UnixSeqpacketListener, UnlinkUnixSeqpacketListener};
 use sys_util::{
@@ -39,14 +37,11 @@ use sys_util::{
     validate_raw_fd, warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
     SignalFd, Terminal, TimerFd, SIGRTMIN,
 };
-#[cfg(feature = "gpu-forward")]
-use sys_util::{GuestAddress, MemoryMapping, Protection};
 use vhost;
 use vm_control::{
     BalloonControlCommand, BalloonControlRequestSocket, BalloonControlResponseSocket,
     DiskControlCommand, DiskControlRequestSocket, DiskControlResponseSocket, DiskControlResult,
-    VmControlResponseSocket, VmRunMode, WlControlRequestSocket,
-    WlControlResponseSocket, WlDriverRequest, WlDriverResponse,
+    VmControlResponseSocket, VmRunMode
 };
 
 use crate::{Config, DiskOption, TouchDeviceOption};
@@ -58,21 +53,13 @@ use aarch64::AArch64 as Arch;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use x86_64::X8664arch as Arch;
 
-#[cfg(feature = "gpu-forward")]
-use render_node_forward::*;
-#[cfg(not(feature = "gpu-forward"))]
-type RenderNodeHost = ();
-
 #[sorted]
 #[derive(Debug)]
 pub enum Error {
-    AddGpuDeviceMemory(sys_util::Error),
-    AllocateGpuDeviceAddress,
     BalloonDeviceNew(virtio::BalloonError),
     BlockDeviceNew(sys_util::Error),
     BlockSignal(sys_util::signal::Error),
     BuildVm(<Arch as LinuxArch>::Error),
-    ChownTpmStorage(sys_util::Error),
     CloneEventFd(sys_util::Error),
     CreateEventFd(sys_util::Error),
     CreatePollContext(sys_util::Error),
@@ -80,7 +67,6 @@ pub enum Error {
     CreateSocket(io::Error),
     CreateTapDevice(NetError),
     CreateTimerFd(sys_util::Error),
-    CreateTpmStorage(PathBuf, io::Error),
     DetectImageType(qcow::Error),
     Disk(io::Error),
     DiskImageLock(sys_util::Error),
@@ -88,7 +74,6 @@ pub enum Error {
     InputDeviceNew(virtio::InputError),
     InputEventsOpen(std::io::Error),
     InvalidFdPath,
-    InvalidWaylandPath,
     LoadKernel(Box<dyn StdError>),
     NetDeviceNew(virtio::NetError),
     OpenAndroidFstab(PathBuf, io::Error),
@@ -104,13 +89,10 @@ pub enum Error {
     ReadLowmemMargin(io::Error),
     RegisterBalloon(arch::DeviceRegistrationError),
     RegisterBlock(arch::DeviceRegistrationError),
-    RegisterGpu(arch::DeviceRegistrationError),
     RegisterNet(arch::DeviceRegistrationError),
     RegisterP9(arch::DeviceRegistrationError),
     RegisterRng(arch::DeviceRegistrationError),
     RegisterSignalHandler(sys_util::Error),
-    RegisterWayland(arch::DeviceRegistrationError),
-    ReserveGpuMemory(sys_util::MmapError),
     ReserveMemory(sys_util::Error),
     ResetTimerFd(sys_util::Error),
     RngDeviceNew(virtio::RngError),
@@ -121,7 +103,6 @@ pub enum Error {
     VhostNetDeviceNew(virtio::vhost::Error),
     VhostVsockDeviceNew(virtio::vhost::Error),
     VirtioPciDev(sys_util::Error),
-    WaylandDeviceNew(sys_util::Error),
 }
 
 impl Display for Error {
@@ -131,13 +112,10 @@ impl Display for Error {
 
         #[sorted]
         match self {
-            AddGpuDeviceMemory(e) => write!(f, "failed to add gpu device memory: {}", e),
-            AllocateGpuDeviceAddress => write!(f, "failed to allocate gpu device guest address"),
             BalloonDeviceNew(e) => write!(f, "failed to create balloon: {}", e),
             BlockDeviceNew(e) => write!(f, "failed to create block device: {}", e),
             BlockSignal(e) => write!(f, "failed to block signal: {}", e),
             BuildVm(e) => write!(f, "The architecture failed to build the vm: {}", e),
-            ChownTpmStorage(e) => write!(f, "failed to chown tpm storage: {}", e),
             CloneEventFd(e) => write!(f, "failed to clone eventfd: {}", e),
             CreateCrasClient(e) => write!(f, "failed to create cras client: {}", e),
             CreateEventFd(e) => write!(f, "failed to create eventfd: {}", e),
@@ -146,9 +124,6 @@ impl Display for Error {
             CreateSocket(e) => write!(f, "failed to create socket: {}", e),
             CreateTapDevice(e) => write!(f, "failed to create tap device: {}", e),
             CreateTimerFd(e) => write!(f, "failed to create timerfd: {}", e),
-            CreateTpmStorage(p, e) => {
-                write!(f, "failed to create tpm storage dir {}: {}", p.display(), e)
-            }
             DetectImageType(e) => write!(f, "failed to detect disk image type: {}", e),
             DevicePivotRoot(e) => write!(f, "failed to pivot root device: {}", e),
             Disk(e) => write!(f, "failed to load disk image: {}", e),
@@ -157,7 +132,6 @@ impl Display for Error {
             InputDeviceNew(e) => write!(f, "failed to set up input device: {}", e),
             InputEventsOpen(e) => write!(f, "failed to open event device: {}", e),
             InvalidFdPath => write!(f, "failed parsing a /proc/self/fd/*"),
-            InvalidWaylandPath => write!(f, "wayland socket path has no parent or file name"),
             LoadKernel(e) => write!(f, "failed to load kernel: {}", e),
             NetDeviceNew(e) => write!(f, "failed to set up virtio networking: {}", e),
             OpenAndroidFstab(p, e) => write!(
@@ -185,13 +159,10 @@ impl Display for Error {
             ),
             RegisterBalloon(e) => write!(f, "error registering balloon device: {}", e),
             RegisterBlock(e) => write!(f, "error registering block device: {}", e),
-            RegisterGpu(e) => write!(f, "error registering gpu device: {}", e),
             RegisterNet(e) => write!(f, "error registering net device: {}", e),
             RegisterP9(e) => write!(f, "error registering 9p device: {}", e),
             RegisterRng(e) => write!(f, "error registering rng device: {}", e),
             RegisterSignalHandler(e) => write!(f, "error registering signal handler: {}", e),
-            RegisterWayland(e) => write!(f, "error registering wayland device: {}", e),
-            ReserveGpuMemory(e) => write!(f, "failed to reserve gpu memory: {}", e),
             ReserveMemory(e) => write!(f, "failed to reserve memory: {}", e),
             ResetTimerFd(e) => write!(f, "failed to reset timerfd: {}", e),
             RngDeviceNew(e) => write!(f, "failed to set up rng: {}", e),
@@ -204,7 +175,6 @@ impl Display for Error {
             VhostNetDeviceNew(e) => write!(f, "failed to set up vhost networking: {}", e),
             VhostVsockDeviceNew(e) => write!(f, "failed to set up virtual socket device: {}", e),
             VirtioPciDev(e) => write!(f, "failed to create virtio pci dev: {}", e),
-            WaylandDeviceNew(e) => write!(f, "failed to create wayland device: {}", e),
         }
     }
 }
@@ -213,9 +183,9 @@ impl std::error::Error for Error {}
 
 type Result<T> = std::result::Result<T, Error>;
 
+// TODO(lpetrut): may no longer be needed as we drop wayland support.
 enum TaggedControlSocket {
     Vm(VmControlResponseSocket),
-    Wayland(WlControlResponseSocket),
 }
 
 impl AsRef<UnixSeqpacket> for TaggedControlSocket {
@@ -223,7 +193,6 @@ impl AsRef<UnixSeqpacket> for TaggedControlSocket {
         use self::TaggedControlSocket::*;
         match &self {
             Vm(ref socket) => socket,
-            Wayland(ref socket) => socket,
         }
     }
 }
@@ -284,25 +253,6 @@ fn create_block_device(
 
 fn create_rng_device(cfg: &Config) -> DeviceResult {
     let dev = virtio::Rng::new().map_err(Error::RngDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-#[cfg(feature = "tpm")]
-fn create_tpm_device(cfg: &Config) -> DeviceResult {
-    use std::ffi::CString;
-    use std::fs;
-    use std::process;
-    use sys_util::chown;
-
-    let tpm_storage: PathBuf;
-
-    // Path used inside cros_sdk which does not have /run/vm.
-    tpm_storage = Path::new("/tmp/tpm-simulator").to_owned();
-
-    let dev = virtio::Tpm::new(tpm_storage);
 
     Ok(VirtioDeviceStub {
         dev: Box::new(dev),
@@ -435,7 +385,6 @@ fn create_virtio_devices(
     cfg: &Config,
     mem: &GuestMemory,
     _exit_evt: &EventFd,
-    wayland_device_socket: WlControlRequestSocket,
     balloon_device_socket: BalloonControlResponseSocket,
     disk_device_sockets: &mut Vec<DiskControlResponseSocket>,
 ) -> DeviceResult<Vec<VirtioDeviceStub>> {
@@ -447,13 +396,6 @@ fn create_virtio_devices(
     }
 
     devs.push(create_rng_device(cfg)?);
-
-    #[cfg(feature = "tpm")]
-    {
-        if cfg.software_tpm {
-            devs.push(create_tpm_device(cfg)?);
-        }
-    }
 
     if let Some(single_touch_spec) = &cfg.virtio_single_touch {
         devs.push(create_single_touch_device(cfg, single_touch_spec)?);
@@ -488,36 +430,6 @@ fn create_virtio_devices(
         devs.push(create_net_device(cfg, host_ip, netmask, mac_address, mem)?);
     }
 
-    #[cfg_attr(not(feature = "gpu"), allow(unused_mut))]
-    let mut resource_bridge_wl_socket = None::<virtio::resource_bridge::ResourceRequestSocket>;
-
-    #[cfg(feature = "gpu")]
-    {
-        if cfg.gpu {
-            if let Some(wayland_socket_path) = &cfg.wayland_socket_path {
-                let (wl_socket, gpu_socket) =
-                    virtio::resource_bridge::pair().map_err(Error::CreateSocket)?;
-                resource_bridge_wl_socket = Some(wl_socket);
-
-                devs.push(create_gpu_device(
-                    cfg,
-                    _exit_evt,
-                    gpu_socket,
-                    wayland_socket_path,
-                )?);
-            }
-        }
-    }
-
-    if let Some(wayland_socket_path) = cfg.wayland_socket_path.as_ref() {
-        devs.push(create_wayland_device(
-            cfg,
-            wayland_socket_path,
-            wayland_device_socket,
-            resource_bridge_wl_socket,
-        )?);
-    }
-
     if let Some(cid) = cfg.cid {
         devs.push(create_vhost_vsock_device(cfg, cid, mem)?);
     }
@@ -535,7 +447,6 @@ fn create_devices(
     cfg: Config,
     mem: &GuestMemory,
     exit_evt: &EventFd,
-    wayland_device_socket: WlControlRequestSocket,
     balloon_device_socket: BalloonControlResponseSocket,
     disk_device_sockets: &mut Vec<DiskControlResponseSocket>,
 ) -> DeviceResult<Vec<(Box<dyn PciDevice>)>> {
@@ -543,7 +454,6 @@ fn create_devices(
         &cfg,
         mem,
         exit_evt,
-        wayland_device_socket,
         balloon_device_socket,
         disk_device_sockets,
     )?;
@@ -825,7 +735,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
             .map_or(Ok(None), |v| v.map(Some))?,
         initrd_image,
         extra_kernel_params: cfg.params.clone(),
-        wayland_dmabuf: cfg.wayland_dmabuf,
     };
 
     let control_server_socket = match &cfg.socket_path {
@@ -836,9 +745,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
     };
 
     let mut control_sockets = Vec::new();
-    let (wayland_host_socket, wayland_device_socket) =
-        msg_socket::pair::<WlDriverResponse, WlDriverRequest>().map_err(Error::CreateSocket)?;
-    control_sockets.push(TaggedControlSocket::Wayland(wayland_host_socket));
     // Balloon gets a special socket so balloon requests can be forwarded from the main process.
     let (balloon_host_socket, balloon_device_socket) =
         msg_socket::pair::<BalloonControlCommand, ()>().map_err(Error::CreateSocket)?;
@@ -861,51 +767,11 @@ pub fn run_config(cfg: Config) -> Result<()> {
             cfg,
             m,
             e,
-            wayland_device_socket,
             balloon_device_socket,
             &mut disk_device_sockets
         )
     })
     .map_err(Error::BuildVm)?;
-
-    let _render_node_host = ();
-    #[cfg(feature = "gpu-forward")]
-    let (_render_node_host, linux) = {
-        // Rebinds linux as mutable.
-        let mut linux = linux;
-
-        // Reserve memory range for GPU buffer allocation in advance to bypass region count
-        // limitation. We use mremap/MAP_FIXED later to make sure GPU buffers fall into this range.
-        let gpu_mmap =
-            MemoryMapping::new_protection(RENDER_NODE_HOST_SIZE as usize, Protection::none())
-                .map_err(Error::ReserveGpuMemory)?;
-
-        // Put the non-accessible memory map into device memory so that no other devices use that
-        // guest address space.
-        let gpu_addr = linux
-            .resources
-            .device_allocator()
-            .allocate(
-                RENDER_NODE_HOST_SIZE,
-                Alloc::GpuRenderNode,
-                "gpu_render_node".to_string(),
-            )
-            .map_err(|_| Error::AllocateGpuDeviceAddress)?;
-
-        let host = RenderNodeHost::start(&gpu_mmap, gpu_addr, linux.vm.get_memory().clone());
-
-        // Makes the gpu memory accessible at allocated address.
-        linux
-            .vm
-            .add_device_memory(
-                GuestAddress(gpu_addr),
-                gpu_mmap,
-                /* read_only = */ false,
-                /* log_dirty_pages = */ false,
-            )
-            .map_err(Error::AddGpuDeviceMemory)?;
-        (host, linux)
-    };
 
     run_control(
         linux,
@@ -914,7 +780,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
         balloon_host_socket,
         &disk_host_sockets,
         sigchld_fd,
-        _render_node_host,
         sandbox,
     )
 }
@@ -926,7 +791,6 @@ fn run_control(
     balloon_host_socket: BalloonControlRequestSocket,
     disk_host_sockets: &[DiskControlRequestSocket],
     sigchld_fd: SignalFd,
-    _render_node_host: RenderNodeHost,
     sandbox: bool,
 ) -> Result<()> {
     // Paths to get the currently available memory and the low memory threshold.
@@ -1231,22 +1095,6 @@ fn run_control(
                                         vm_control_indices_to_remove.push(index);
                                     } else {
                                         error!("failed to recv VmRequest: {}", e);
-                                    }
-                                }
-                            },
-                            TaggedControlSocket::Wayland(socket) => match socket.recv() {
-                                Ok(request) => {
-                                    let response =
-                                        request.execute(&mut linux.vm, &mut linux.resources);
-                                    if let Err(e) = socket.send(&response) {
-                                        error!("failed to send WlControlResponse: {}", e);
-                                    }
-                                }
-                                Err(e) => {
-                                    if let MsgError::BadRecvSize { actual: 0, .. } = e {
-                                        vm_control_indices_to_remove.push(index);
-                                    } else {
-                                        error!("failed to recv WlControlRequest: {}", e);
                                     }
                                 }
                             },

@@ -33,8 +33,6 @@ use vm_control::{
 
 use crate::argument::{print_help, set_arguments, Argument};
 
-static SECCOMP_POLICY_DIR: &'static str = "/usr/share/policy/crosvm";
-
 struct DiskOption {
     path: PathBuf,
     read_only: bool,
@@ -93,13 +91,8 @@ pub struct Config {
     vhost_net: bool,
     tap_fd: Vec<RawFd>,
     cid: Option<u64>,
-    wayland_socket_path: Option<PathBuf>,
-    wayland_dmabuf: bool,
     shared_dirs: Vec<(PathBuf, String)>,
     sandbox: bool,
-    seccomp_policy_dir: PathBuf,
-    gpu: bool,
-    software_tpm: bool,
     virtio_single_touch: Option<TouchDeviceOption>,
     virtio_trackpad: Option<TouchDeviceOption>,
     virtio_mouse: Option<PathBuf>,
@@ -130,13 +123,8 @@ impl Default for Config {
             vhost_net: false,
             tap_fd: Vec::new(),
             cid: None,
-            gpu: false,
-            software_tpm: false,
-            wayland_socket_path: None,
-            wayland_dmabuf: false,
             shared_dirs: Vec::new(),
             sandbox: !cfg!(feature = "default-no-sandbox"),
-            seccomp_policy_dir: PathBuf::from(SECCOMP_POLICY_DIR),
             virtio_single_touch: None,
             virtio_trackpad: None,
             virtio_mouse: None,
@@ -377,23 +365,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
                         })?,
                 )
         }
-        "wayland-sock" => {
-            if cfg.wayland_socket_path.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`wayland-sock` already given".to_owned(),
-                ));
-            }
-            let wayland_socket_path = PathBuf::from(value.unwrap());
-            if !wayland_socket_path.exists() {
-                return Err(argument::Error::InvalidValue {
-                    value: value.unwrap().to_string(),
-                    expected: "Wayland socket does not exist",
-                });
-            }
-            cfg.wayland_socket_path = Some(wayland_socket_path);
-        }
-        #[cfg(feature = "wl-dmabuf")]
-        "wayland-dmabuf" => cfg.wayland_dmabuf = true,
         "socket" => {
             if cfg.socket_path.is_some() {
                 return Err(argument::Error::TooManyArguments(
@@ -460,10 +431,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
             }
 
             cfg.shared_dirs.push((src, tag));
-        }
-        "seccomp-policy-dir" => {
-            // `value` is Some because we are in this match so it's safe to unwrap.
-            cfg.seccomp_policy_dir = PathBuf::from(value.unwrap());
         }
         "plugin" => {
             if !cfg.kernel_path.as_os_str().is_empty() {
@@ -580,12 +547,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
                     })?,
             );
         }
-        "gpu" => {
-            cfg.gpu = true;
-        }
-        "software-tpm" => {
-            cfg.software_tpm = true;
-        }
         "single-touch" => {
             if cfg.virtio_single_touch.is_some() {
                 return Err(argument::Error::TooManyArguments(
@@ -690,9 +651,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
                           "IP address to assign to host tap interface."),
           Argument::value("netmask", "NETMASK", "Netmask for VM subnet."),
           Argument::value("mac", "MAC", "MAC address for VM."),
-          Argument::value("wayland-sock", "PATH", "Path to the Wayland socket to use."),
-          #[cfg(feature = "wl-dmabuf")]
-          Argument::flag("wayland-dmabuf", "Enable support for DMABufs in Wayland device."),
           Argument::short_value('s',
                                 "socket",
                                 "PATH",
@@ -701,7 +659,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
           Argument::value("cid", "CID", "Context ID for virtual sockets."),
           Argument::value("shared-dir", "PATH:TAG",
                           "Directory to be shared with a VM as a source:tag pair. Can be given more than once."),
-          Argument::value("seccomp-policy-dir", "PATH", "Path to seccomp .policy files."),
           #[cfg(feature = "plugin")]
           Argument::value("plugin", "PATH", "Absolute path to plugin process to run under crosvm."),
           #[cfg(feature = "plugin")]
@@ -713,10 +670,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
           Argument::value("tap-fd",
                           "fd",
                           "File descriptor for configured tap device. A different virtual network card will be added each time this argument is given."),
-          #[cfg(feature = "gpu")]
-          Argument::flag("gpu", "(EXPERIMENTAL) enable virtio-gpu device"),
-          #[cfg(feature = "tpm")]
-          Argument::flag("software-tpm", "enable a software emulated trusted platform module device"),
           Argument::value("evdev", "PATH", "Path to an event device node. The device will be grabbed (unusable from the host) and made available to the guest with the same configuration it shows on the host"),
           Argument::value("single-touch", "PATH:WIDTH:HEIGHT", "Path to a socket from where to read single touch input events (such as those from a touchscreen) and write status updates to, optionally followed by width and height (defaults to 800x1280)."),
           Argument::value("trackpad", "PATH:WIDTH:HEIGHT", "Path to a socket from where to read trackpad input events and write status updates to, optionally followed by screen width and height (defaults to 800x1280)."),
