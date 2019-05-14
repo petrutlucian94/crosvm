@@ -23,7 +23,7 @@ use std::time::Duration;
 use msg_socket::{MsgReceiver, MsgSender, MsgSocket};
 use qcow::QcowFile;
 use sys_util::{
-    debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child, syslog,
+    debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child,
     validate_raw_fd, warn,
 };
 use vm_control::{
@@ -918,11 +918,6 @@ fn print_usage() {
 }
 
 fn crosvm_main() -> std::result::Result<(), ()> {
-    if let Err(e) = syslog::init() {
-        println!("failed to initialize syslog: {}", e);
-        return Err(());
-    }
-
     panic_hook::set_panic_hook();
 
     let mut args = std::env::args();

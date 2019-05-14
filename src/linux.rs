@@ -80,7 +80,6 @@ pub enum Error {
     OpenInitrd(PathBuf, io::Error),
     OpenKernel(PathBuf, io::Error),
     OpenVinput(PathBuf, io::Error),
-    P9DeviceNew(virtio::P9Error),
     PivotRootDoesntExist(&'static str),
     PollContextAdd(sys_util::Error),
     PollContextDelete(sys_util::Error),
@@ -90,7 +89,6 @@ pub enum Error {
     RegisterBalloon(arch::DeviceRegistrationError),
     RegisterBlock(arch::DeviceRegistrationError),
     RegisterNet(arch::DeviceRegistrationError),
-    RegisterP9(arch::DeviceRegistrationError),
     RegisterRng(arch::DeviceRegistrationError),
     RegisterSignalHandler(sys_util::Error),
     ReserveMemory(sys_util::Error),
@@ -143,7 +141,6 @@ impl Display for Error {
             OpenInitrd(p, e) => write!(f, "failed to open initrd {}: {}", p.display(), e),
             OpenKernel(p, e) => write!(f, "failed to open kernel image {}: {}", p.display(), e),
             OpenVinput(p, e) => write!(f, "failed to open vinput device {}: {}", p.display(), e),
-            P9DeviceNew(e) => write!(f, "failed to create 9p device: {}", e),
             PollContextAdd(e) => write!(f, "failed to add fd to poll context: {}", e),
             PollContextDelete(e) => write!(f, "failed to remove fd from poll context: {}", e),
             QcowDeviceCreate(e) => write!(f, "failed to read qcow formatted file {}", e),
@@ -160,7 +157,6 @@ impl Display for Error {
             RegisterBalloon(e) => write!(f, "error registering balloon device: {}", e),
             RegisterBlock(e) => write!(f, "error registering block device: {}", e),
             RegisterNet(e) => write!(f, "error registering net device: {}", e),
-            RegisterP9(e) => write!(f, "error registering 9p device: {}", e),
             RegisterRng(e) => write!(f, "error registering rng device: {}", e),
             RegisterSignalHandler(e) => write!(f, "error registering signal handler: {}", e),
             ReserveMemory(e) => write!(f, "failed to reserve memory: {}", e),
@@ -371,16 +367,6 @@ fn create_net_device(
     })
 }
 
-fn create_9p_device(cfg: &Config, chronos: Ids, src: &Path, tag: &str) -> DeviceResult {
-    // There's no bind mount so we tell the server to treat the source directory as the
-    // root.
-    let dev = virtio::P9::new(src, tag).map_err(Error::P9DeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
 fn create_virtio_devices(
     cfg: &Config,
     mem: &GuestMemory,
@@ -434,12 +420,6 @@ fn create_virtio_devices(
         devs.push(create_vhost_vsock_device(cfg, cid, mem)?);
     }
 
-    let chronos = get_chronos_ids();
-
-    for (src, tag) in &cfg.shared_dirs {
-        devs.push(create_9p_device(cfg, chronos, src, tag)?);
-    }
-
     Ok(devs)
 }
 
@@ -473,31 +453,6 @@ fn create_devices(
 struct Ids {
     uid: uid_t,
     gid: gid_t,
-}
-
-fn get_chronos_ids() -> Ids {
-    let chronos_user_group = CStr::from_bytes_with_nul(b"chronos\0").unwrap();
-
-    let chronos_uid = match get_user_id(&chronos_user_group) {
-        Ok(u) => u,
-        Err(e) => {
-            warn!("falling back to current user id for 9p: {}", e);
-            geteuid()
-        }
-    };
-
-    let chronos_gid = match get_group_id(&chronos_user_group) {
-        Ok(u) => u,
-        Err(e) => {
-            warn!("falling back to current group id for 9p: {}", e);
-            getegid()
-        }
-    };
-
-    Ids {
-        uid: chronos_uid,
-        gid: chronos_gid,
-    }
 }
 
 fn raw_fd_from_path(path: &Path) -> Result<RawFd> {

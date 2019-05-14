@@ -40,7 +40,6 @@ kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
 msg_socket = { path = "msg_socket" }
 net_util = { path = "net_util" }
-p9 = { path = "p9" }
 protobuf = { version = "2.3", optional = true }
 protos = { path = "protos", optional = true }
 qcow = { path = "qcow" }
@@ -54,9 +53,6 @@ vm_control = { path = "vm_control" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = { path = "x86_64" }
-
-[target.'cfg(any(target_arch = "aarch64", target_arch = "arm"))'.dependencies]
-aarch64 = { path = "aarch64" }
 
 [dev-dependencies]
 sys_util = "*"

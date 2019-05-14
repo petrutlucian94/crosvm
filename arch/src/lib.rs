@@ -21,7 +21,7 @@ use devices::{
 use kvm::{IoeventAddress, Kvm, Vcpu, Vm};
 use resources::SystemAllocator;
 use sync::Mutex;
-use sys_util::{syslog, EventFd, GuestAddress, GuestMemory, GuestMemoryError};
+use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 
 /// Holds the pieces needed to build a VM. Passed to `build_vm` in the `LinuxArch` trait below to
 /// create a `RunnableLinuxVm`.
@@ -146,7 +146,7 @@ pub fn generate_pci_root(
         device.assign_bus_dev(0, dev_idx as u8);
 
         let mut keep_fds = device.keep_fds();
-        syslog::push_fds(&mut keep_fds);
+        // syslog::push_fds(&mut keep_fds);
 
         let irqfd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_resample_fd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
