@@ -30,7 +30,7 @@ use kvm::{Datamatch, IoeventAddress, Kvm, Vcpu, VcpuExit, Vm};
 use net_util::{Error as TapError, Tap, TapT};
 use sys_util::{
     block_signal, clear_signal, drop_capabilities, error, getegid, geteuid, info, pipe,
-    register_signal_handler, validate_raw_fd, warn, Error as SysError, EventFd, GuestMemory,
+    register_signal_handler, warn, Error as SysError, EventFd, GuestMemory,
     Killable, MmapError, PollContext, PollToken, Result as SysResult, SignalFd, SignalFdError,
     SIGRTMIN,
 };
@@ -473,8 +473,7 @@ pub fn run_config(cfg: Config) -> Result<()> {
     for tap_fd in cfg.tap_fd {
         // Safe because we ensure that we get a unique handle to the fd.
         let tap = unsafe {
-            Tap::from_raw_fd(validate_raw_fd(tap_fd).map_err(Error::ValidateTapFd)?)
-                .map_err(Error::CreateTapFd)?
+            Tap::from_raw_fd(tap_fd).map_err(Error::CreateTapFd)?
         };
         tap_interfaces.push(tap);
     }

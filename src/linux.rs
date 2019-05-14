@@ -34,7 +34,7 @@ use sys_util::net::{UnixSeqpacket, UnixSeqpacketListener, UnlinkUnixSeqpacketLis
 use sys_util::{
     self, block_signal, clear_signal, drop_capabilities, error, flock, get_blocked_signals,
     get_group_id, get_user_id, getegid, geteuid, info, register_signal_handler, set_cpu_affinity,
-    validate_raw_fd, warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
+    warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
     SignalFd, Terminal, TimerFd, SIGRTMIN,
 };
 use vm_control::{
@@ -96,7 +96,6 @@ pub enum Error {
     SignalFd(sys_util::SignalFdError),
     SpawnVcpu(io::Error),
     TimerFd(sys_util::Error),
-    ValidateRawFd(sys_util::Error),
     VirtioPciDev(sys_util::Error),
 }
 
@@ -164,7 +163,6 @@ impl Display for Error {
             SignalFd(e) => write!(f, "failed to read signal fd: {}", e),
             SpawnVcpu(e) => write!(f, "failed to spawn VCPU thread: {}", e),
             TimerFd(e) => write!(f, "failed to read timer fd: {}", e),
-            ValidateRawFd(e) => write!(f, "failed to validate raw fd: {}", e),
             VirtioPciDev(e) => write!(f, "failed to create virtio pci dev: {}", e),
         }
     }
@@ -213,12 +211,13 @@ fn create_block_device(
             .map_err(Error::Disk)?
     };
     // Lock the disk image to prevent other crosvm instances from using it.
-    let lock_op = if disk.read_only {
-        FlockOperation::LockShared
-    } else {
-        FlockOperation::LockExclusive
-    };
-    flock(&raw_image, lock_op, true).map_err(Error::DiskImageLock)?;
+    // TODO(lpetrut): we may want to use this on Windows.
+    // let lock_op = if disk.read_only {
+    //     FlockOperation::LockShared
+    // } else {
+    //     FlockOperation::LockExclusive
+    // };
+    // flock(&raw_image, lock_op, true).map_err(Error::DiskImageLock)?;
 
     let image_type = qcow::detect_image_type(&raw_image).map_err(Error::DetectImageType)?;
     let dev = match image_type {
@@ -328,8 +327,7 @@ fn create_balloon_device(cfg: &Config, socket: BalloonControlResponseSocket) -> 
 fn create_tap_net_device(cfg: &Config, tap_fd: RawFd) -> DeviceResult {
     // Safe because we ensure that we get a unique handle to the fd.
     let tap = unsafe {
-        Tap::from_raw_fd(validate_raw_fd(tap_fd).map_err(Error::ValidateRawFd)?)
-            .map_err(Error::CreateTapDevice)?
+        Tap::from_raw_fd(tap_fd).map_err(Error::CreateTapDevice)?
     };
 
     let dev = virtio::Net::from(tap).map_err(Error::NetDeviceNew)?;
@@ -441,12 +439,10 @@ fn raw_fd_from_path(path: &Path) -> Result<RawFd> {
     if !path.is_file() {
         return Err(Error::InvalidFdPath);
     }
-    let raw_fd = path
-        .file_name()
+    path.file_name()
         .and_then(|fd_osstr| fd_osstr.to_str())
         .and_then(|fd_str| fd_str.parse::<c_int>().ok())
         .ok_or(Error::InvalidFdPath)?;
-    validate_raw_fd(raw_fd).map_err(Error::ValidateRawFd)
 }
 
 fn create_input_socket(path: &Path) -> Result<UnixStream> {
@@ -764,9 +760,9 @@ fn run_control(
 
     let stdin_handle = stdin();
     let stdin_lock = stdin_handle.lock();
-    stdin_lock
-        .set_raw_mode()
-        .expect("failed to set terminal raw mode");
+    // stdin_lock
+    //     .set_raw_mode()
+    //     .expect("failed to set terminal raw mode");
 
     let poll_ctx = PollContext::new().map_err(Error::CreatePollContext)?;
     poll_ctx
@@ -1094,10 +1090,6 @@ fn run_control(
             Err(e) => error!("failed to kill vcpu thread: {}", e),
         }
     }
-
-    stdin_lock
-        .set_canon_mode()
-        .expect("failed to restore canonical mode for terminal");
 
     Ok(())
 }

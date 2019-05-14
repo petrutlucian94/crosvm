@@ -300,24 +300,3 @@ impl Drop for UnlinkUnixDatagram {
         }
     }
 }
-
-/// Verifies that |raw_fd| is actually owned by this process and duplicates it to ensure that
-/// we have a unique handle to it.
-pub fn validate_raw_fd(raw_fd: RawFd) -> Result<RawFd> {
-    // Checking that close-on-exec isn't set helps filter out FDs that were opened by
-    // crosvm as all crosvm FDs are close on exec.
-    // Safe because this doesn't modify any memory and we check the return value.
-    let flags = unsafe { libc::fcntl(raw_fd, libc::F_GETFD) };
-    if flags < 0 || (flags & libc::FD_CLOEXEC) != 0 {
-        return Err(Error::new(libc::EBADF));
-    }
-
-    // Duplicate the fd to ensure that we don't accidentally close an fd previously
-    // opened by another subsystem.  Safe because this doesn't modify any memory and
-    // we check the return value.
-    let dup_fd = unsafe { libc::fcntl(raw_fd, libc::F_DUPFD_CLOEXEC, 0) };
-    if dup_fd < 0 {
-        return Err(Error::last());
-    }
-    Ok(dup_fd as RawFd)
-}

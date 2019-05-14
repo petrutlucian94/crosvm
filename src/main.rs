@@ -23,8 +23,7 @@ use std::time::Duration;
 use msg_socket::{MsgReceiver, MsgSender, MsgSocket};
 use qcow::QcowFile;
 use sys_util::{
-    debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child,
-    validate_raw_fd, warn,
+    debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child, warn,
 };
 use vm_control::{
     BalloonControlCommand, DiskControlCommand, MaybeOwnedFd,
