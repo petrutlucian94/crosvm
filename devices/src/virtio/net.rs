@@ -17,7 +17,7 @@ use net_util::{Error as TapError, MacAddress, TapT};
 use sys_util::Error as SysError;
 use sys_util::{error, warn, EventFd, GuestMemory, PollContext, PollToken};
 use virtio_sys::virtio_net::virtio_net_hdr_v1;
-use virtio_sys::{vhost, virtio_net};
+use virtio_sys::{virtio_net};
 
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 
@@ -360,7 +360,7 @@ where
             | 1 << virtio_net::VIRTIO_NET_F_GUEST_UFO
             | 1 << virtio_net::VIRTIO_NET_F_HOST_TSO4
             | 1 << virtio_net::VIRTIO_NET_F_HOST_UFO
-            | 1 << vhost::VIRTIO_F_VERSION_1;
+            // | 1 << vhost::VIRTIO_F_VERSION_1;
 
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
         Ok(Net {

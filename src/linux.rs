@@ -37,7 +37,6 @@ use sys_util::{
     validate_raw_fd, warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
     SignalFd, Terminal, TimerFd, SIGRTMIN,
 };
-use vhost;
 use vm_control::{
     BalloonControlCommand, BalloonControlRequestSocket, BalloonControlResponseSocket,
     DiskControlCommand, DiskControlRequestSocket, DiskControlResponseSocket, DiskControlResult,
@@ -98,8 +97,6 @@ pub enum Error {
     SpawnVcpu(io::Error),
     TimerFd(sys_util::Error),
     ValidateRawFd(sys_util::Error),
-    VhostNetDeviceNew(virtio::vhost::Error),
-    VhostVsockDeviceNew(virtio::vhost::Error),
     VirtioPciDev(sys_util::Error),
 }
 
@@ -168,8 +165,6 @@ impl Display for Error {
             SpawnVcpu(e) => write!(f, "failed to spawn VCPU thread: {}", e),
             TimerFd(e) => write!(f, "failed to read timer fd: {}", e),
             ValidateRawFd(e) => write!(f, "failed to validate raw fd: {}", e),
-            VhostNetDeviceNew(e) => write!(f, "failed to set up vhost networking: {}", e),
-            VhostVsockDeviceNew(e) => write!(f, "failed to set up virtual socket device: {}", e),
             VirtioPciDev(e) => write!(f, "failed to create virtio pci dev: {}", e),
         }
     }
@@ -351,19 +346,10 @@ fn create_net_device(
     mac_address: MacAddress,
     mem: &GuestMemory,
 ) -> DeviceResult {
-    let dev = if cfg.vhost_net {
-        let dev =
-            virtio::vhost::Net::<Tap, vhost::Net<Tap>>::new(host_ip, netmask, mac_address, mem)
-                .map_err(Error::VhostNetDeviceNew)?;
-        Box::new(dev) as Box<dyn VirtioDevice>
-    } else {
-        let dev =
-            virtio::Net::<Tap>::new(host_ip, netmask, mac_address).map_err(Error::NetDeviceNew)?;
-        Box::new(dev) as Box<dyn VirtioDevice>
-    };
+    let dev = virtio::Net::<Tap>::new(host_ip, netmask, mac_address).map_err(Error::NetDeviceNew)?;
 
     Ok(VirtioDeviceStub {
-        dev,
+        Box::new(dev) as Box<dyn VirtioDevice>,
     })
 }
 
@@ -414,10 +400,6 @@ fn create_virtio_devices(
         (cfg.host_ip, cfg.netmask, cfg.mac_address)
     {
         devs.push(create_net_device(cfg, host_ip, netmask, mac_address, mem)?);
-    }
-
-    if let Some(cid) = cfg.cid {
-        devs.push(create_vhost_vsock_device(cfg, cid, mem)?);
     }
 
     Ok(devs)

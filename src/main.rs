@@ -88,7 +88,6 @@ pub struct Config {
     host_ip: Option<net::Ipv4Addr>,
     netmask: Option<net::Ipv4Addr>,
     mac_address: Option<net_util::MacAddress>,
-    vhost_net: bool,
     tap_fd: Vec<RawFd>,
     cid: Option<u64>,
     shared_dirs: Vec<(PathBuf, String)>,
@@ -120,7 +119,6 @@ impl Default for Config {
             host_ip: None,
             netmask: None,
             mac_address: None,
-            vhost_net: false,
             tap_fd: Vec::new(),
             cid: None,
             shared_dirs: Vec::new(),
@@ -535,7 +533,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
                 count,
             });
         }
-        "vhost-net" => cfg.vhost_net = true,
         "tap-fd" => {
             cfg.tap_fd.push(
                 value
@@ -665,8 +662,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
           Argument::value("plugin-root", "PATH", "Absolute path to a directory that will become root filesystem for the plugin process."),
           #[cfg(feature = "plugin")]
           Argument::value("plugin-mount", "PATH:PATH:BOOL", "Path to be mounted into the plugin's root filesystem.  Can be given more than once."),
-          #[cfg(feature = "plugin")]
-          Argument::flag("vhost-net", "Use vhost for networking."),
           Argument::value("tap-fd",
                           "fd",
                           "File descriptor for configured tap device. A different virtual network card will be added each time this argument is given."),

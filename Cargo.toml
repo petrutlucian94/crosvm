@@ -48,7 +48,6 @@ remain = "*"
 resources = { path = "resources" }
 sync = { path = "sync" }
 sys_util = "*"
-vhost = { path = "vhost" }
 vm_control = { path = "vm_control" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
