@@ -7,8 +7,6 @@
 pub mod argument;
 pub mod linux;
 pub mod panic_hook;
-#[cfg(feature = "plugin")]
-pub mod plugin;
 
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -78,10 +76,6 @@ pub struct Config {
     initrd_path: Option<PathBuf>,
     params: Vec<String>,
     socket_path: Option<PathBuf>,
-    plugin: Option<PathBuf>,
-    plugin_root: Option<PathBuf>,
-    plugin_mounts: Vec<BindMount>,
-    plugin_gid_maps: Vec<GidMap>,
     disks: Vec<DiskOption>,
     host_ip: Option<net::Ipv4Addr>,
     netmask: Option<net::Ipv4Addr>,
@@ -109,10 +103,6 @@ impl Default for Config {
             initrd_path: None,
             params: Vec::new(),
             socket_path: None,
-            plugin: None,
-            plugin_root: None,
-            plugin_mounts: Vec::new(),
-            plugin_gid_maps: Vec::new(),
             disks: Vec::new(),
             host_ip: None,
             netmask: None,
@@ -177,11 +167,7 @@ fn parse_cpu_set(s: &str) -> argument::Result<Vec<usize>> {
 fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::Result<()> {
     match name {
         "" => {
-            if cfg.plugin.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`plugin` can not be used with kernel".to_owned(),
-                ));
-            } else if !cfg.kernel_path.as_os_str().is_empty() {
+            if !cfg.kernel_path.as_os_str().is_empty() {
                 return Err(argument::Error::TooManyArguments(
                     "expected exactly one kernel path".to_owned(),
                 ));
@@ -401,109 +387,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
 
             cfg.shared_dirs.push((src, tag));
         }
-        "plugin" => {
-            if !cfg.kernel_path.as_os_str().is_empty() {
-                return Err(argument::Error::TooManyArguments(
-                    "`plugin` can not be used with kernel".to_owned(),
-                ));
-            } else if cfg.plugin.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`plugin` already given".to_owned(),
-                ));
-            }
-            let plugin = PathBuf::from(value.unwrap().to_owned());
-            if plugin.is_relative() {
-                return Err(argument::Error::InvalidValue {
-                    value: plugin.to_string_lossy().into_owned(),
-                    expected: "the plugin path must be an absolute path",
-                });
-            }
-            cfg.plugin = Some(plugin);
-        }
-        "plugin-root" => {
-            cfg.plugin_root = Some(PathBuf::from(value.unwrap().to_owned()));
-        }
-        "plugin-mount" => {
-            let components: Vec<&str> = value.unwrap().split(":").collect();
-            if components.len() != 3 {
-                return Err(argument::Error::InvalidValue {
-                    value: value.unwrap().to_owned(),
-                    expected:
-                        "`plugin-mount` must have exactly 3 components: <src>:<dst>:<writable>",
-                });
-            }
-
-            let src = PathBuf::from(components[0]);
-            if src.is_relative() {
-                return Err(argument::Error::InvalidValue {
-                    value: components[0].to_owned(),
-                    expected: "the source path for `plugin-mount` must be absolute",
-                });
-            }
-            if !src.exists() {
-                return Err(argument::Error::InvalidValue {
-                    value: components[0].to_owned(),
-                    expected: "the source path for `plugin-mount` does not exist",
-                });
-            }
-
-            let dst = PathBuf::from(components[1]);
-            if dst.is_relative() {
-                return Err(argument::Error::InvalidValue {
-                    value: components[1].to_owned(),
-                    expected: "the destination path for `plugin-mount` must be absolute",
-                });
-            }
-
-            let writable: bool =
-                components[2]
-                    .parse()
-                    .map_err(|_| argument::Error::InvalidValue {
-                        value: components[2].to_owned(),
-                        expected: "the <writable> component for `plugin-mount` is not valid bool",
-                    })?;
-
-            cfg.plugin_mounts.push(BindMount { src, dst, writable });
-        }
-        "plugin-gid-map" => {
-            let components: Vec<&str> = value.unwrap().split(":").collect();
-            if components.len() != 3 {
-                return Err(argument::Error::InvalidValue {
-                    value: value.unwrap().to_owned(),
-                    expected:
-                        "`plugin-gid-map` must have exactly 3 components: <inner>:<outer>:<count>",
-                });
-            }
-
-            let inner: libc::gid_t =
-                components[0]
-                    .parse()
-                    .map_err(|_| argument::Error::InvalidValue {
-                        value: components[0].to_owned(),
-                        expected: "the <inner> component for `plugin-gid-map` is not valid gid",
-                    })?;
-
-            let outer: libc::gid_t =
-                components[1]
-                    .parse()
-                    .map_err(|_| argument::Error::InvalidValue {
-                        value: components[1].to_owned(),
-                        expected: "the <outer> component for `plugin-gid-map` is not valid gid",
-                    })?;
-
-            let count: u32 = components[2]
-                .parse()
-                .map_err(|_| argument::Error::InvalidValue {
-                    value: components[2].to_owned(),
-                    expected: "the <count> component for `plugin-gid-map` is not valid number",
-                })?;
-
-            cfg.plugin_gid_maps.push(GidMap {
-                inner,
-                outer,
-                count,
-            });
-        }
         "tap-fd" => {
             cfg.tap_fd.push(
                 value
@@ -627,15 +510,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
           Argument::value("cid", "CID", "Context ID for virtual sockets."),
           Argument::value("shared-dir", "PATH:TAG",
                           "Directory to be shared with a VM as a source:tag pair. Can be given more than once."),
-          #[cfg(feature = "plugin")]
-          Argument::value("plugin", "PATH", "Absolute path to plugin process to run under crosvm."),
-          #[cfg(feature = "plugin")]
-          Argument::value("plugin-root", "PATH", "Absolute path to a directory that will become root filesystem for the plugin process."),
-          #[cfg(feature = "plugin")]
-          Argument::value("plugin-mount", "PATH:PATH:BOOL", "Path to be mounted into the plugin's root filesystem.  Can be given more than once."),
-          Argument::value("tap-fd",
-                          "fd",
-                          "File descriptor for configured tap device. A different virtual network card will be added each time this argument is given."),
           Argument::value("evdev", "PATH", "Path to an event device node. The device will be grabbed (unusable from the host) and made available to the guest with the same configuration it shows on the host"),
           Argument::value("single-touch", "PATH:WIDTH:HEIGHT", "Path to a socket from where to read single touch input events (such as those from a touchscreen) and write status updates to, optionally followed by width and height (defaults to 800x1280)."),
           Argument::value("trackpad", "PATH:WIDTH:HEIGHT", "Path to a socket from where to read trackpad input events and write status updates to, optionally followed by screen width and height (defaults to 800x1280)."),
@@ -650,7 +524,7 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
         set_argument(&mut cfg, name, value)
     })
     .and_then(|_| {
-        if cfg.kernel_path.as_os_str().is_empty() && cfg.plugin.is_none() {
+        if cfg.kernel_path.as_os_str().is_empty() {
             return Err(argument::Error::ExpectedArgument("`KERNEL`".to_owned()));
         }
         if cfg.host_ip.is_some() || cfg.netmask.is_some() || cfg.mac_address.is_some() {
@@ -670,26 +544,10 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
                 ));
             }
         }
-        if cfg.plugin_root.is_some() && cfg.plugin.is_none() {
-            return Err(argument::Error::ExpectedArgument(
-                "`plugin-root` requires `plugin`".to_owned(),
-            ));
-        }
         Ok(())
     });
 
     match match_res {
-        #[cfg(feature = "plugin")]
-        Ok(()) if cfg.plugin.is_some() => match plugin::run_config(cfg) {
-            Ok(_) => {
-                info!("crosvm and plugin have exited normally");
-                Ok(())
-            }
-            Err(e) => {
-                error!("{}", e);
-                Err(())
-            }
-        },
         Ok(()) => match linux::run_config(cfg) {
             Ok(_) => {
                 info!("crosvm has exited normally");
