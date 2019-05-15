@@ -132,33 +132,6 @@ impl Default for Config {
     }
 }
 
-// Wait for all children to exit. Return true if they have all exited, false
-// otherwise.
-fn wait_all_children() -> bool {
-    const CHILD_WAIT_MAX_ITER: isize = 100;
-    const CHILD_WAIT_MS: u64 = 10;
-    for _ in 0..CHILD_WAIT_MAX_ITER {
-        loop {
-            match reap_child() {
-                Ok(0) => break,
-                // We expect ECHILD which indicates that there were no children left.
-                Err(e) if e.errno() == libc::ECHILD => return true,
-                Err(e) => {
-                    warn!("error while waiting for children: {}", e);
-                    return false;
-                }
-                // We reaped one child, so continue reaping.
-                _ => {}
-            }
-        }
-        // There's no timeout option for waitpid which reap_child calls internally, so our only
-        // recourse is to sleep while waiting for the children to exit.
-        sleep(Duration::from_millis(CHILD_WAIT_MS));
-    }
-
-    // If we've made it to this point, not all of the children have exited.
-    false
-}
 
 /// Parse a comma-separated list of CPU numbers and ranges and convert it to a Vec of CPU numbers.
 fn parse_cpu_set(s: &str) -> argument::Result<Vec<usize>> {
@@ -940,17 +913,7 @@ fn crosvm_main() -> std::result::Result<(), ()> {
         }
     };
 
-    // Reap exit status from any child device processes. At this point, all devices should have been
-    // dropped in the main process and told to shutdown. Try over a period of 100ms, since it may
-    // take some time for the processes to shut down.
-    if !wait_all_children() {
-        // We gave them a chance, and it's too late.
-        warn!("not all child processes have exited; sending SIGKILL");
-        if let Err(e) = kill_process_group() {
-            // We're now at the mercy of the OS to clean up after us.
-            warn!("unable to kill all child processes: {}", e);
-        }
-    }
+    // TODO(lpetrut): are there any subprocesses that we should wait for?
 
     // WARNING: Any code added after this point is not guaranteed to run
     // since we may forcibly kill this process (and its children) above.

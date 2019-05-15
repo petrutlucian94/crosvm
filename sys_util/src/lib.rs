@@ -150,55 +150,6 @@ pub fn fallocate(
     }
 }
 
-/// Reaps a child process that has terminated.
-///
-/// Returns `Ok(pid)` where `pid` is the process that was reaped or `Ok(0)` if none of the children
-/// have terminated. An `Error` is with `errno == ECHILD` if there are no children left to reap.
-///
-/// # Examples
-///
-/// Reaps all child processes until there are no terminated children to reap.
-///
-/// ```
-/// fn reap_children() {
-///     loop {
-///         match sys_util::reap_child() {
-///             Ok(0) => println!("no children ready to reap"),
-///             Ok(pid) => {
-///                 println!("reaped {}", pid);
-///                 continue
-///             },
-///             Err(e) if e.errno() == libc::ECHILD => println!("no children left"),
-///             Err(e) => println!("error reaping children: {}", e),
-///         }
-///         break
-///     }
-/// }
-/// ```
-pub fn reap_child() -> Result<pid_t> {
-    // Safe because we pass in no memory, prevent blocking with WNOHANG, and check for error.
-    let ret = unsafe { waitpid(-1, ptr::null_mut(), WNOHANG) };
-    if ret == -1 {
-        errno_result()
-    } else {
-        Ok(ret)
-    }
-}
-
-/// Kill all processes in the current process group.
-///
-/// On success, this kills all processes in the current process group, including the current
-/// process, meaning this will not return. This is equivalent to a call to `kill(0, SIGKILL)`.
-pub fn kill_process_group() -> Result<()> {
-    let ret = unsafe { kill(0, SIGKILL) };
-    if ret == -1 {
-        errno_result()
-    } else {
-        // Kill succeeded, so this process never reaches here.
-        unreachable!();
-    }
-}
-
 /// Spawns a pipe pair where the first pipe is the read end and the second pipe is the write end.
 ///
 /// If `close_on_exec` is true, the `O_CLOEXEC` flag will be set during pipe creation.
