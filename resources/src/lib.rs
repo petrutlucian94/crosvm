@@ -5,7 +5,6 @@
 //! Manages system resources that can be allocated to VMs and their devices.
 
 extern crate libc;
-extern crate msg_socket;
 extern crate sys_util;
 
 use std::fmt::Display;

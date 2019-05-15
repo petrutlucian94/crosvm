@@ -20,7 +20,6 @@ use std::string::String;
 use std::thread::sleep;
 use std::time::Duration;
 
-use msg_socket::{MsgReceiver, MsgSender, MsgSocket};
 use qcow::QcowFile;
 use sys_util::{
     debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child, warn,

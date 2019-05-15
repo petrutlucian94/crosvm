@@ -23,7 +23,6 @@ use sys_util::{
 };
 
 use data_model::{DataInit, Le16, Le32, Le64};
-use msg_socket::{MsgReceiver, MsgSender};
 use vm_control::{DiskControlCommand, DiskControlResponseSocket, DiskControlResult};
 
 use super::{
@@ -699,7 +698,6 @@ impl<T: DiskFile> Worker<T> {
         &mut self,
         queue_evt: EventFd,
         kill_evt: EventFd,
-        control_socket: DiskControlResponseSocket,
     ) {
         #[derive(PollToken)]
         enum Token {
@@ -722,7 +720,6 @@ impl<T: DiskFile> Worker<T> {
         let poll_ctx: PollContext<Token> = match PollContext::new()
             .and_then(|pc| pc.add(&flush_timer, Token::FlushTimer).and(Ok(pc)))
             .and_then(|pc| pc.add(&queue_evt, Token::QueueAvailable).and(Ok(pc)))
-            .and_then(|pc| pc.add(&control_socket, Token::ControlRequest).and(Ok(pc)))
             .and_then(|pc| {
                 pc.add(&self.interrupt_resample_evt, Token::InterruptResample)
                     .and(Ok(pc))
@@ -767,27 +764,6 @@ impl<T: DiskFile> Worker<T> {
                         needs_interrupt |=
                             self.process_queue(0, &mut flush_timer, &mut flush_timer_armed);
                     }
-                    Token::ControlRequest => {
-                        let req = match control_socket.recv() {
-                            Ok(req) => req,
-                            Err(e) => {
-                                error!("control socket failed recv: {}", e);
-                                break 'poll;
-                            }
-                        };
-
-                        let resp = match req {
-                            DiskControlCommand::Resize { new_size } => {
-                                needs_config_interrupt = true;
-                                self.resize(new_size)
-                            }
-                        };
-
-                        if let Err(e) = control_socket.send(&resp) {
-                            error!("control socket failed send: {}", e);
-                            break 'poll;
-                        }
-                    }
                     Token::InterruptResample => {
                         let _ = self.interrupt_resample_evt.read();
                         if self.interrupt_status.load(Ordering::SeqCst) != 0 {
@@ -814,7 +790,6 @@ pub struct Block<T: DiskFile> {
     disk_size: Arc<Mutex<u64>>,
     avail_features: u64,
     read_only: bool,
-    control_socket: Option<DiskControlResponseSocket>,
 }
 
 fn build_config_space(disk_size: u64) -> virtio_blk_config {
@@ -840,7 +815,6 @@ impl<T: DiskFile> Block<T> {
     pub fn new(
         mut disk_image: T,
         read_only: bool,
-        control_socket: Option<DiskControlResponseSocket>,
     ) -> SysResult<Block<T>> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
@@ -867,7 +841,6 @@ impl<T: DiskFile> Block<T> {
             disk_size: Arc::new(Mutex::new(disk_size)),
             avail_features,
             read_only,
-            control_socket,
         })
     }
 }
@@ -887,10 +860,6 @@ impl<T: 'static + AsRawFd + DiskFile + Send> VirtioDevice for Block<T> {
 
         if let Some(disk_image) = &self.disk_image {
             keep_fds.push(disk_image.as_raw_fd());
-        }
-
-        if let Some(control_socket) = &self.control_socket {
-            keep_fds.push(control_socket.as_raw_fd());
         }
 
         keep_fds
@@ -952,28 +921,26 @@ impl<T: 'static + AsRawFd + DiskFile + Send> VirtioDevice for Block<T> {
         let read_only = self.read_only;
         let disk_size = self.disk_size.clone();
         if let Some(disk_image) = self.disk_image.take() {
-            if let Some(control_socket) = self.control_socket.take() {
-                let worker_result =
-                    thread::Builder::new()
-                        .name("virtio_blk".to_string())
-                        .spawn(move || {
-                            let mut worker = Worker {
-                                queues,
-                                mem,
-                                disk_image,
-                                disk_size,
-                                read_only,
-                                interrupt_status: status,
-                                interrupt_evt,
-                                interrupt_resample_evt,
-                            };
-                            worker.run(queue_evts.remove(0), kill_evt, control_socket);
-                        });
+            let worker_result =
+            thread::Builder::new()
+                .name("virtio_blk".to_string())
+                .spawn(move || {
+                    let mut worker = Worker {
+                        queues,
+                        mem,
+                        disk_image,
+                        disk_size,
+                        read_only,
+                        interrupt_status: status,
+                        interrupt_evt,
+                        interrupt_resample_evt,
+                    };
+                    worker.run(queue_evts.remove(0), kill_evt);
+                });
 
-                if let Err(e) = worker_result {
-                    error!("failed to spawn virtio_blk worker: {}", e);
-                    return;
-                }
+            if let Err(e) = worker_result {
+                error!("failed to spawn virtio_blk worker: {}", e);
+                return;
             }
         }
     }

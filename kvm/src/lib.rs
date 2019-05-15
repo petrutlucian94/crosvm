@@ -20,7 +20,6 @@ use libc::{open, EINVAL, ENOENT, ENOSPC, O_CLOEXEC, O_RDWR};
 
 use kvm_sys::*;
 
-use msg_socket::MsgOnSocket;
 #[allow(unused_imports)]
 use sys_util::{
     ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
@@ -235,7 +234,7 @@ impl AsRawFd for Kvm {
 }
 
 /// An address either in programmable I/O space or in memory mapped I/O space.
-#[derive(Copy, Clone, Debug, MsgOnSocket)]
+#[derive(Copy, Clone, Debug)]
 pub enum IoeventAddress {
     Pio(u64),
     Mmio(u64),

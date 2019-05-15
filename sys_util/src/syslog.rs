@@ -30,7 +30,6 @@ use std::io;
 use std::io::{stderr, Cursor, ErrorKind, Write};
 use std::mem;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::ptr::null;
 use std::sync::{MutexGuard, Once, ONCE_INIT};
@@ -144,60 +143,16 @@ fn get_proc_name() -> Option<String> {
         .and_then(Result::ok)
 }
 
-// Uses libc's openlog function to get a socket to the syslogger. By getting the socket this way, as
-// opposed to connecting to the syslogger directly, libc's internal state gets initialized for other
-// libraries (e.g. minijail) that make use of libc's syslog function. Note that this function
-// depends on no other threads or signal handlers being active in this process because they might
-// create FDs.
-//
-// TODO(zachr): Once https://android-review.googlesource.com/470998 lands, there won't be any
-// libraries in use that hard depend on libc's syslogger. Remove this and go back to making the
-// connection directly once minjail is ready.
-fn openlog_and_get_socket() -> Result<UnixDatagram, Error> {
-    // closelog first in case there was already a file descriptor open.  Safe because it takes no
-    // arguments and just closes an open file descriptor.  Does nothing if the file descriptor
-    // was not already open.
-    unsafe {
-        closelog();
-    }
-
-    // Ordinarily libc's FD for the syslog connection can't be accessed, but we can guess that the
-    // FD that openlog will be getting is the lowest unused FD. To guarantee that an FD is opened in
-    // this function we use the LOG_NDELAY to tell openlog to connect to the syslog now. To get the
-    // lowest unused FD, we open a dummy file (which the manual says will always return the lowest
-    // fd), and then close that fd. Voilà, we now know the lowest numbered FD. The call to openlog
-    // will make use of that FD, and then we just wrap a `UnixDatagram` around it for ease of use.
-    let fd = File::open("/dev/null")
-        .map_err(Error::GetLowestFd)?
-        .as_raw_fd();
-
-    unsafe {
-        // Safe because openlog accesses no pointers because `ident` is null, only valid flags are
-        // used, and it returns no error.
-        openlog(null(), LOG_NDELAY | LOG_PERROR | LOG_PID, LOG_USER);
-        // For safety, ensure the fd we guessed is valid. The `fcntl` call itself only reads the
-        // file descriptor table of the current process, which is trivially safe.
-        if fcntl(fd, F_GETFD) >= 0 {
-            Ok(UnixDatagram::from_raw_fd(fd))
-        } else {
-            Err(Error::InvalidFd)
-        }
-    }
-}
-
 struct State {
     stderr: bool,
-    socket: Option<UnixDatagram>,
     file: Option<File>,
     proc_name: Option<String>,
 }
 
 impl State {
     fn new() -> Result<State, Error> {
-        let s = openlog_and_get_socket()?;
         Ok(State {
             stderr: true,
-            socket: Some(s),
             file: None,
             proc_name: get_proc_name(),
         })
@@ -289,19 +244,6 @@ pub fn echo_syslog(enable: bool) -> Result<(), Error> {
     }
     let mut state = lock().map_err(|_| Error::Poisoned)?;
 
-    match state.socket.take() {
-        Some(_) if enable => {}
-        Some(s) => {
-            // Because `openlog_and_get_socket` actually just "borrows" the syslog FD, this module
-            // does not own the syslog connection and therefore should not destroy it.
-            mem::forget(s);
-        }
-        None if enable => {
-            let s = openlog_and_get_socket()?;
-            state.socket = Some(s);
-        }
-        _ => {}
-    }
     Ok(())
 }
 
@@ -340,31 +282,7 @@ pub fn echo_stderr(enable: bool) {
 /// Note that the `stderr` file descriptor is never added, as it is not owned by syslog.
 pub fn push_fds(fds: &mut Vec<RawFd>) {
     let state = lock!();
-    fds.extend(state.socket.iter().map(|s| s.as_raw_fd()));
     fds.extend(state.file.iter().map(|f| f.as_raw_fd()));
-}
-
-/// Should only be called after `init()` was called.
-fn send_buf(socket: &UnixDatagram, buf: &[u8]) {
-    const SEND_RETRY: usize = 2;
-
-    for _ in 0..SEND_RETRY {
-        match socket.send(&buf[..]) {
-            Ok(_) => break,
-            Err(e) => match e.kind() {
-                ErrorKind::ConnectionRefused
-                | ErrorKind::ConnectionReset
-                | ErrorKind::ConnectionAborted
-                | ErrorKind::NotConnected => {
-                    let res = socket.connect(SYSLOG_PATH);
-                    if res.is_err() {
-                        break;
-                    }
-                }
-                _ => {}
-            },
-        }
-    }
 }
 
 fn get_localtime() -> tm {
@@ -414,35 +332,6 @@ pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::
 
     let mut state = lock!();
     let mut buf = [0u8; 1024];
-    if let Some(socket) = &state.socket {
-        let tm = get_localtime();
-        let prifac = (pri as u8) | (fac as u8);
-        let (res, len) = {
-            let mut buf_cursor = Cursor::new(&mut buf[..]);
-            (
-                write!(
-                    &mut buf_cursor,
-                    "<{}>{} {:02} {:02}:{:02}:{:02} {}[{}]: [{}:{}] {}",
-                    prifac,
-                    MONTHS[tm.tm_mon as usize],
-                    tm.tm_mday,
-                    tm.tm_hour,
-                    tm.tm_min,
-                    tm.tm_sec,
-                    state.proc_name.as_ref().map(|s| s.as_ref()).unwrap_or("-"),
-                    getpid(),
-                    file_name,
-                    line,
-                    args
-                ),
-                buf_cursor.position() as usize,
-            )
-        };
-
-        if res.is_ok() {
-            send_buf(&socket, &buf[..len]);
-        }
-    }
 
     let (res, len) = {
         let mut buf_cursor = Cursor::new(&mut buf[..]);

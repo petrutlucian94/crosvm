@@ -24,7 +24,6 @@ use libc::{self, c_int, gid_t, uid_t};
 use devices::virtio::{self, VirtioDevice};
 use devices::{self, HostBackendDeviceProvider, PciDevice, VirtioPciDevice, XhciController};
 use kvm::*;
-use msg_socket::{MsgError, MsgReceiver, MsgSender, MsgSocket};
 use net_util::{Error as NetError, MacAddress, Tap};
 use qcow::{self, ImageType, QcowFile};
 use rand_ish::SimpleRng;
@@ -671,23 +670,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
         None => None,
     };
 
-    let mut control_sockets = Vec::new();
-    // Balloon gets a special socket so balloon requests can be forwarded from the main process.
-    let (balloon_host_socket, balloon_device_socket) =
-        msg_socket::pair::<BalloonControlCommand, ()>().map_err(Error::CreateSocket)?;
-
-    // Create one control socket per disk.
-    let mut disk_device_sockets = Vec::new();
-    let mut disk_host_sockets = Vec::new();
-    let disk_count = cfg.disks.len();
-    for _ in 0..disk_count {
-        let (disk_host_socket, disk_device_socket) =
-            msg_socket::pair::<DiskControlCommand, DiskControlResult>()
-                .map_err(Error::CreateSocket)?;
-        disk_host_sockets.push(disk_host_socket);
-        disk_device_sockets.push(disk_device_socket);
-    }
-
     let sandbox = cfg.sandbox;
     let linux = Arch::build_vm(components, cfg.split_irqchip, |m, e| {
         create_devices(
@@ -876,65 +858,6 @@ fn run_control(
                         );
                     }
                     break 'poll;
-                }
-                Token::VmControlServer => {
-                    if let Some(socket_server) = &control_server_socket {
-                        match socket_server.accept() {
-                            Ok(socket) => {
-                                poll_ctx
-                                    .add(
-                                        &socket,
-                                        Token::VmControl {
-                                            index: control_sockets.len(),
-                                        },
-                                    )
-                                    .map_err(Error::PollContextAdd)?;
-                                control_sockets
-                                    .push(TaggedControlSocket::Vm(MsgSocket::new(socket)));
-                            }
-                            Err(e) => error!("failed to accept socket: {}", e),
-                        }
-                    }
-                }
-                Token::VmControl { index } => {
-                    if let Some(socket) = control_sockets.get(index) {
-                        match socket {
-                            TaggedControlSocket::Vm(socket) => match socket.recv() {
-                                Ok(request) => {
-                                    let mut run_mode_opt = None;
-                                    let response = request.execute(
-                                        &mut run_mode_opt,
-                                        &balloon_host_socket,
-                                        disk_host_sockets,
-                                    );
-                                    if let Err(e) = socket.send(&response) {
-                                        error!("failed to send VmResponse: {}", e);
-                                    }
-                                    if let Some(run_mode) = run_mode_opt {
-                                        info!("control socket changed run mode to {}", run_mode);
-                                        match run_mode {
-                                            VmRunMode::Exiting => {
-                                                break 'poll;
-                                            }
-                                            other => {
-                                                run_mode_arc.set_and_notify(other);
-                                                for handle in &vcpu_handles {
-                                                    let _ = handle.kill(SIGRTMIN() + 0);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    if let MsgError::BadRecvSize { actual: 0, .. } = e {
-                                        vm_control_indices_to_remove.push(index);
-                                    } else {
-                                        error!("failed to recv VmRequest: {}", e);
-                                    }
-                                }
-                            },
-                        }
-                    }
                 }
             }
         }

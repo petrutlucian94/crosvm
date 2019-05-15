@@ -18,7 +18,6 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use libc::{EINVAL, EIO, ENODEV};
 
 use kvm::Vm;
-use msg_socket::{MsgOnSocket, MsgReceiver, MsgResult, MsgSender, MsgSocket};
 use resources::{SystemAllocator};
 use sys_util::{error, Error as SysError, GuestAddress, MemoryMapping, MmapError, Result};
 

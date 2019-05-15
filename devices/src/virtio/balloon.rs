@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::thread;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use msg_socket::MsgReceiver;
 use sys_util::{
     self, error, info, warn, EventFd, GuestAddress, GuestMemory, PollContext, PollToken,
 };

@@ -143,17 +143,17 @@ impl FakeTimerFd {
     }
 }
 
-impl AsRawFd for FakeTimerFd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
-    }
-}
+// impl AsRawFd for FakeTimerFd {
+//     fn as_raw_fd(&self) -> RawFd {
+//         self.fd.as_raw_fd()
+//     }
+// }
 
-impl IntoRawFd for FakeTimerFd {
-    fn into_raw_fd(self) -> RawFd {
-        self.fd.into_raw_fd()
-    }
-}
+// impl IntoRawFd for FakeTimerFd {
+//     fn into_raw_fd(self) -> RawFd {
+//         self.fd.into_raw_fd()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

@@ -22,7 +22,6 @@ mod file_traits;
 mod guest_address;
 pub mod guest_memory;
 mod mmap;
-pub mod net;
 mod passwd;
 mod poll;
 mod raw_fd;
@@ -30,7 +29,6 @@ mod seek_hole;
 mod shm;
 pub mod signal;
 mod signalfd;
-mod sock_ctrl_msg;
 mod struct_util;
 mod tempdir;
 #[cfg(unix)]
@@ -55,7 +53,6 @@ pub use crate::raw_fd::*;
 pub use crate::shm::*;
 pub use crate::signal::*;
 pub use crate::signalfd::*;
-pub use crate::sock_ctrl_msg::*;
 pub use crate::struct_util::*;
 pub use crate::tempdir::*;
 #[cfg(unix)]
@@ -73,7 +70,6 @@ pub use crate::write_zeroes::{PunchHole, WriteZeroes};
 use std::ffi::CStr;
 use std::fs::{remove_file, File};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::net::UnixDatagram;
 
 use libc::{
     c_long, pid_t, pipe2, syscall, sysconf, O_CLOEXEC, _SC_PAGESIZE,
@@ -129,24 +125,5 @@ pub fn pipe(close_on_exec: bool) -> Result<(File, File)> {
                 File::from_raw_fd(pipe_fds[1]),
             )
         })
-    }
-}
-
-/// Used to attempt to clean up a named pipe after it is no longer used.
-pub struct UnlinkUnixDatagram(pub UnixDatagram);
-impl AsRef<UnixDatagram> for UnlinkUnixDatagram {
-    fn as_ref(&self) -> &UnixDatagram {
-        &self.0
-    }
-}
-impl Drop for UnlinkUnixDatagram {
-    fn drop(&mut self) {
-        if let Ok(addr) = self.0.local_addr() {
-            if let Some(path) = addr.as_pathname() {
-                if let Err(e) = remove_file(path) {
-                    warn!("failed to remove control socket file: {}", e);
-                }
-            }
-        }
     }
 }

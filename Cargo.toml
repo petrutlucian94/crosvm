@@ -38,7 +38,6 @@ kernel_loader = { path = "kernel_loader" }
 kvm = { path = "kvm" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
-msg_socket = { path = "msg_socket" }
 net_util = { path = "net_util" }
 protobuf = { version = "2.3", optional = true }
 protos = { path = "protos", optional = true }

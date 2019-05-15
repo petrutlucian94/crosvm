@@ -15,8 +15,6 @@ mod virtio_pci_common_config;
 mod virtio_pci_device;
 mod wl;
 
-pub mod resource_bridge;
-
 pub use self::balloon::*;
 pub use self::block::*;
 pub use self::input::*;
