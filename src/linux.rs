@@ -33,7 +33,7 @@ use sync::{Condvar, Mutex};
 use sys_util::net::{UnixSeqpacket, UnixSeqpacketListener, UnlinkUnixSeqpacketListener};
 use sys_util::{
     self, block_signal, clear_signal, drop_capabilities, error, flock, get_blocked_signals,
-    get_group_id, get_user_id, getegid, geteuid, info, register_signal_handler, set_cpu_affinity,
+    get_group_id, get_user_id, info, register_signal_handler, set_cpu_affinity,
     warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
     SignalFd, Terminal, TimerFd, SIGRTMIN,
 };

@@ -105,33 +105,6 @@ pub fn getpid() -> pid_t {
     unsafe { syscall(SYS_getpid as c_long) as pid_t }
 }
 
-/// Safe wrapper for `geteuid(2)`.
-#[inline(always)]
-pub fn geteuid() -> uid_t {
-    // trivially safe
-    unsafe { libc::geteuid() }
-}
-
-/// Safe wrapper for `getegid(2)`.
-#[inline(always)]
-pub fn getegid() -> gid_t {
-    // trivially safe
-    unsafe { libc::getegid() }
-}
-
-/// Safe wrapper for chown(2).
-#[inline(always)]
-pub fn chown(path: &CStr, uid: uid_t, gid: gid_t) -> Result<()> {
-    // Safe since we pass in a valid string pointer and check the return value.
-    let ret = unsafe { libc::chown(path.as_ptr(), uid, gid) };
-
-    if ret < 0 {
-        errno_result()
-    } else {
-        Ok(())
-    }
-}
-
 /// The operation to perform with `fallocate`.
 pub enum FallocateMode {
     PunchHole,
