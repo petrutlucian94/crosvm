@@ -6,9 +6,6 @@ use std::cmp::min;
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom, Write};
 
-use crate::fallocate;
-use crate::FallocateMode;
-
 /// A trait for deallocating space in a file.
 pub trait PunchHole {
     /// Replace a range of bytes with a hole.
@@ -17,8 +14,9 @@ pub trait PunchHole {
 
 impl PunchHole for File {
     fn punch_hole(&mut self, offset: u64, length: u64) -> io::Result<()> {
-        fallocate(self, FallocateMode::PunchHole, true, offset, length as u64)
-            .map_err(|e| io::Error::from_raw_os_error(e.errno()))
+        // TODO(lpetrut): implement this using FSCTL_SET_ZERO_DATA
+        // Note that this is already implemented for Qcow images.
+        Err("Not supported")
     }
 }
 

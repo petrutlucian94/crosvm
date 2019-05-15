@@ -74,11 +74,9 @@ use std::ffi::CStr;
 use std::fs::{remove_file, File};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixDatagram;
-use std::ptr;
 
 use libc::{
-    c_long, gid_t, kill, pid_t, pipe2, syscall, sysconf, uid_t, waitpid, O_CLOEXEC, SIGKILL,
-    WNOHANG, _SC_PAGESIZE,
+    c_long, pid_t, pipe2, syscall, sysconf, O_CLOEXEC, _SC_PAGESIZE,
 };
 
 use syscall_defines::linux::LinuxSyscall::SYS_getpid;
@@ -109,45 +107,6 @@ pub fn getpid() -> pid_t {
 pub enum FallocateMode {
     PunchHole,
     ZeroRange,
-}
-
-/// Safe wrapper for `fallocate()`.
-pub fn fallocate(
-    file: &dyn AsRawFd,
-    mode: FallocateMode,
-    keep_size: bool,
-    offset: u64,
-    len: u64,
-) -> Result<()> {
-    let offset = if offset > libc::off64_t::max_value() as u64 {
-        return Err(Error::new(libc::EINVAL));
-    } else {
-        offset as libc::off64_t
-    };
-
-    let len = if len > libc::off64_t::max_value() as u64 {
-        return Err(Error::new(libc::EINVAL));
-    } else {
-        len as libc::off64_t
-    };
-
-    let mut mode = match mode {
-        FallocateMode::PunchHole => libc::FALLOC_FL_PUNCH_HOLE,
-        FallocateMode::ZeroRange => libc::FALLOC_FL_ZERO_RANGE,
-    };
-
-    if keep_size {
-        mode |= libc::FALLOC_FL_KEEP_SIZE;
-    }
-
-    // Safe since we pass in a valid fd and fallocate mode, validate offset and len,
-    // and check the return value.
-    let ret = unsafe { libc::fallocate64(file.as_raw_fd(), mode, offset, len) };
-    if ret < 0 {
-        errno_result()
-    } else {
-        Ok(())
-    }
 }
 
 /// Spawns a pipe pair where the first pipe is the read end and the second pipe is the write end.
