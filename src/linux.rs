@@ -35,7 +35,7 @@ use sys_util::{
     self, block_signal, clear_signal, drop_capabilities, error, flock, get_blocked_signals,
     get_group_id, get_user_id, info, register_signal_handler, set_cpu_affinity,
     warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
-    SignalFd, Terminal, TimerFd, SIGRTMIN,
+    SignalFd, Terminal, SIGRTMIN,
 };
 use vm_control::{
     BalloonControlCommand, BalloonControlRequestSocket, BalloonControlResponseSocket,
@@ -65,7 +65,6 @@ pub enum Error {
     CreateSignalFd(sys_util::SignalFdError),
     CreateSocket(io::Error),
     CreateTapDevice(NetError),
-    CreateTimerFd(sys_util::Error),
     DetectImageType(qcow::Error),
     Disk(io::Error),
     DiskImageLock(sys_util::Error),
@@ -91,11 +90,9 @@ pub enum Error {
     RegisterRng(arch::DeviceRegistrationError),
     RegisterSignalHandler(sys_util::Error),
     ReserveMemory(sys_util::Error),
-    ResetTimerFd(sys_util::Error),
     RngDeviceNew(virtio::RngError),
     SignalFd(sys_util::SignalFdError),
     SpawnVcpu(io::Error),
-    TimerFd(sys_util::Error),
     VirtioPciDev(sys_util::Error),
 }
 
@@ -117,7 +114,6 @@ impl Display for Error {
             CreateSignalFd(e) => write!(f, "failed to create signalfd: {}", e),
             CreateSocket(e) => write!(f, "failed to create socket: {}", e),
             CreateTapDevice(e) => write!(f, "failed to create tap device: {}", e),
-            CreateTimerFd(e) => write!(f, "failed to create timerfd: {}", e),
             DetectImageType(e) => write!(f, "failed to detect disk image type: {}", e),
             DevicePivotRoot(e) => write!(f, "failed to pivot root device: {}", e),
             Disk(e) => write!(f, "failed to load disk image: {}", e),
@@ -156,13 +152,11 @@ impl Display for Error {
             RegisterRng(e) => write!(f, "error registering rng device: {}", e),
             RegisterSignalHandler(e) => write!(f, "error registering signal handler: {}", e),
             ReserveMemory(e) => write!(f, "failed to reserve memory: {}", e),
-            ResetTimerFd(e) => write!(f, "failed to reset timerfd: {}", e),
             RngDeviceNew(e) => write!(f, "failed to set up rng: {}", e),
             SettingGidMap(e) => write!(f, "error setting GID map: {}", e),
             SettingUidMap(e) => write!(f, "error setting UID map: {}", e),
             SignalFd(e) => write!(f, "failed to read signal fd: {}", e),
             SpawnVcpu(e) => write!(f, "failed to spawn VCPU thread: {}", e),
-            TimerFd(e) => write!(f, "failed to read timer fd: {}", e),
             VirtioPciDev(e) => write!(f, "failed to create virtio pci dev: {}", e),
         }
     }
@@ -796,18 +790,6 @@ fn run_control(
         warn!("Unable to open low mem indicator, maybe not a chrome os kernel");
     }
 
-    // Used to rate limit balloon requests.
-    let mut lowmem_timer = TimerFd::new().map_err(Error::CreateTimerFd)?;
-    poll_ctx
-        .add(&lowmem_timer, Token::LowmemTimer)
-        .map_err(Error::PollContextAdd)?;
-
-    // Used to check whether it's ok to start giving memory back to the VM.
-    let mut freemem_timer = TimerFd::new().map_err(Error::CreateTimerFd)?;
-    poll_ctx
-        .add(&freemem_timer, Token::CheckAvailableMemory)
-        .map_err(Error::PollContextAdd)?;
-
     // Used to add jitter to timer values so that we don't have a thundering herd problem when
     // multiple VMs are running.
     let mut simple_rng = SimpleRng::new(
@@ -894,86 +876,6 @@ fn run_control(
                         );
                     }
                     break 'poll;
-                }
-                Token::CheckAvailableMemory => {
-                    // Acknowledge the timer.
-                    freemem_timer.wait().map_err(Error::TimerFd)?;
-                    if current_balloon_memory == 0 {
-                        // Nothing to see here.
-                        if let Err(e) = freemem_timer.clear() {
-                            warn!("unable to clear available memory check timer: {}", e);
-                        }
-                        continue;
-                    }
-
-                    // Otherwise see if we can free up some memory.
-                    let margin = file_to_u64(LOWMEM_MARGIN).map_err(Error::ReadLowmemMargin)?;
-                    let available =
-                        file_to_u64(LOWMEM_AVAILABLE).map_err(Error::ReadLowmemAvailable)?;
-
-                    // `available` and `margin` are specified in MB while `balloon_memory_increment` is in
-                    // bytes.  So to correctly compare them we need to turn the increment value into MB.
-                    if available >= margin + 2 * (balloon_memory_increment >> 20) {
-                        current_balloon_memory =
-                            if current_balloon_memory >= balloon_memory_increment {
-                                current_balloon_memory - balloon_memory_increment
-                            } else {
-                                0
-                            };
-                        let command = BalloonControlCommand::Adjust {
-                            num_bytes: current_balloon_memory,
-                        };
-                        if let Err(e) = balloon_host_socket.send(&command) {
-                            warn!("failed to send memory value to balloon device: {}", e);
-                        }
-                    }
-                }
-                Token::LowMemory => {
-                    if let Some(low_mem) = &low_mem {
-                        let old_balloon_memory = current_balloon_memory;
-                        current_balloon_memory = min(
-                            current_balloon_memory + balloon_memory_increment,
-                            max_balloon_memory,
-                        );
-                        if current_balloon_memory != old_balloon_memory {
-                            let command = BalloonControlCommand::Adjust {
-                                num_bytes: current_balloon_memory,
-                            };
-                            if let Err(e) = balloon_host_socket.send(&command) {
-                                warn!("failed to send memory value to balloon device: {}", e);
-                            }
-                        }
-
-                        // Stop polling the lowmem device until the timer fires.
-                        poll_ctx.delete(low_mem).map_err(Error::PollContextDelete)?;
-
-                        // Add some jitter to the timer so that if there are multiple VMs running
-                        // they don't all start ballooning at exactly the same time.
-                        let lowmem_dur = Duration::from_millis(1000 + simple_rng.rng() % 200);
-                        lowmem_timer
-                            .reset(lowmem_dur, None)
-                            .map_err(Error::ResetTimerFd)?;
-
-                        // Also start a timer to check when we can start giving memory back.  Do the
-                        // first check after a minute (with jitter) and subsequent checks after
-                        // every 30 seconds (with jitter).
-                        let freemem_dur = Duration::from_secs(60 + simple_rng.rng() % 12);
-                        let freemem_int = Duration::from_secs(30 + simple_rng.rng() % 6);
-                        freemem_timer
-                            .reset(freemem_dur, Some(freemem_int))
-                            .map_err(Error::ResetTimerFd)?;
-                    }
-                }
-                Token::LowmemTimer => {
-                    // Acknowledge the timer.
-                    lowmem_timer.wait().map_err(Error::TimerFd)?;
-
-                    if let Some(low_mem) = &low_mem {
-                        // Start polling the lowmem device again.
-                        poll_ctx
-                            .add(low_mem, Token::LowMemory)
-                            .map_err(Error::PollContextAdd)?;
-                    }
                 }
                 Token::VmControlServer => {
                     if let Some(socket_server) = &control_server_socket {
