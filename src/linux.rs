@@ -31,8 +31,8 @@ use remain::sorted;
 use sync::{Condvar, Mutex};
 use sys_util::net::{UnixSeqpacket, UnixSeqpacketListener, UnlinkUnixSeqpacketListener};
 use sys_util::{
-    self, block_signal, clear_signal, drop_capabilities, error, flock, get_blocked_signals,
-    get_group_id, get_user_id, info, register_signal_handler, set_cpu_affinity,
+    self, block_signal, clear_signal, error, flock, get_blocked_signals,
+    info, register_signal_handler, set_cpu_affinity,
     warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
     SignalFd, Terminal, SIGRTMIN,
 };
@@ -67,7 +67,6 @@ pub enum Error {
     DetectImageType(qcow::Error),
     Disk(io::Error),
     DiskImageLock(sys_util::Error),
-    DropCapabilities(sys_util::Error),
     InputDeviceNew(virtio::InputError),
     InputEventsOpen(std::io::Error),
     InvalidFdPath,
@@ -117,7 +116,6 @@ impl Display for Error {
             DevicePivotRoot(e) => write!(f, "failed to pivot root device: {}", e),
             Disk(e) => write!(f, "failed to load disk image: {}", e),
             DiskImageLock(e) => write!(f, "failed to lock disk image: {}", e),
-            DropCapabilities(e) => write!(f, "failed to drop process capabilities: {}", e),
             InputDeviceNew(e) => write!(f, "failed to set up input device: {}", e),
             InputEventsOpen(e) => write!(f, "failed to open event device: {}", e),
             InvalidFdPath => write!(f, "failed parsing a /proc/self/fd/*"),
@@ -485,12 +483,6 @@ fn run_vcpu(
     thread::Builder::new()
         .name(format!("crosvm_vcpu{}", cpu_id))
         .spawn(move || {
-            if vcpu_affinity.len() != 0 {
-                if let Err(e) = set_cpu_affinity(vcpu_affinity) {
-                    error!("Failed to set CPU affinity: {}", e);
-                }
-            }
-
             let mut sig_ok = true;
             match get_blocked_signals() {
                 Ok(mut v) => {
@@ -780,11 +772,6 @@ fn run_control(
             .expect("time went backwards")
             .subsec_nanos() as u64,
     );
-
-    if sandbox {
-        // Before starting VCPUs, in case we started with some capabilities, drop them all.
-        drop_capabilities().map_err(Error::DropCapabilities)?;
-    }
 
     let mut vcpu_handles = Vec::with_capacity(linux.vcpus.len());
     let vcpu_thread_barrier = Arc::new(Barrier::new(linux.vcpus.len() + 1));

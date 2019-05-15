@@ -4,7 +4,6 @@
 
 //! Small system utility modules for usage by other modules.
 
-pub mod affinity;
 mod alloc;
 #[macro_use]
 pub mod handle_eintr;
@@ -13,16 +12,13 @@ pub mod handle_eintr;
 pub mod ioctl;
 #[macro_use]
 pub mod syslog;
-mod capabilities;
 mod clock;
 mod errno;
 mod eventfd;
-mod file_flags;
 mod file_traits;
 mod guest_address;
 pub mod guest_memory;
 mod mmap;
-mod passwd;
 mod poll;
 mod raw_fd;
 mod seek_hole;
@@ -36,18 +32,14 @@ mod terminal;
 mod timerfd;
 mod write_zeroes;
 
-pub use crate::affinity::*;
 pub use crate::alloc::LayoutAllocation;
-pub use crate::capabilities::drop_capabilities;
 pub use crate::clock::{Clock, FakeClock};
 use crate::errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
-pub use crate::file_flags::*;
 pub use crate::guest_address::*;
 pub use crate::guest_memory::*;
 pub use crate::mmap::*;
-pub use crate::passwd::*;
 pub use crate::poll::*;
 pub use crate::raw_fd::*;
 pub use crate::shm::*;
