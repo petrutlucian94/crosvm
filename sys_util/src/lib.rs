@@ -9,6 +9,7 @@ mod alloc;
 #[macro_use]
 pub mod handle_eintr;
 #[macro_use]
+#[cfg(unix)]
 pub mod ioctl;
 #[macro_use]
 pub mod syslog;
@@ -48,6 +49,7 @@ pub use crate::eventfd::*;
 pub use crate::file_flags::*;
 pub use crate::guest_address::*;
 pub use crate::guest_memory::*;
+#[cfg(unix)]
 pub use crate::ioctl::*;
 pub use crate::mmap::*;
 pub use crate::passwd::*;
