@@ -569,96 +569,6 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
     }
 }
 
-fn handle_request(
-    request: &VmRequest,
-    args: std::env::Args,
-) -> std::result::Result<VmResponse, ()> {
-    let mut return_result = Err(());
-    for socket_path in args {
-        match UnixSeqpacket::connect(&socket_path) {
-            Ok(s) => {
-                let socket: VmControlRequestSocket = MsgSocket::new(s);
-                if let Err(e) = socket.send(request) {
-                    error!(
-                        "failed to send request to socket at '{}': {}",
-                        socket_path, e
-                    );
-                    return_result = Err(());
-                    continue;
-                }
-                match socket.recv() {
-                    Ok(response) => return_result = Ok(response),
-                    Err(e) => {
-                        error!(
-                            "failed to send request to socket at2 '{}': {}",
-                            socket_path, e
-                        );
-                        return_result = Err(());
-                        continue;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("failed to connect to socket at '{}': {}", socket_path, e);
-                return_result = Err(());
-            }
-        }
-    }
-
-    return_result
-}
-
-fn vms_request(request: &VmRequest, args: std::env::Args) -> std::result::Result<(), ()> {
-    let response = handle_request(request, args)?;
-    info!("request response was {}", response);
-    Ok(())
-}
-
-fn stop_vms(args: std::env::Args) -> std::result::Result<(), ()> {
-    if args.len() == 0 {
-        print_help("crosvm stop", "VM_SOCKET...", &[]);
-        println!("Stops the crosvm instance listening on each `VM_SOCKET` given.");
-        return Err(());
-    }
-    vms_request(&VmRequest::Exit, args)
-}
-
-fn suspend_vms(args: std::env::Args) -> std::result::Result<(), ()> {
-    if args.len() == 0 {
-        print_help("crosvm suspend", "VM_SOCKET...", &[]);
-        println!("Suspends the crosvm instance listening on each `VM_SOCKET` given.");
-        return Err(());
-    }
-    vms_request(&VmRequest::Suspend, args)
-}
-
-fn resume_vms(args: std::env::Args) -> std::result::Result<(), ()> {
-    if args.len() == 0 {
-        print_help("crosvm resume", "VM_SOCKET...", &[]);
-        println!("Resumes the crosvm instance listening on each `VM_SOCKET` given.");
-        return Err(());
-    }
-    vms_request(&VmRequest::Resume, args)
-}
-
-fn balloon_vms(mut args: std::env::Args) -> std::result::Result<(), ()> {
-    if args.len() < 2 {
-        print_help("crosvm balloon", "SIZE VM_SOCKET...", &[]);
-        println!("Set the ballon size of the crosvm instance to `SIZE` bytes.");
-        return Err(());
-    }
-    let num_bytes = match args.nth(0).unwrap().parse::<u64>() {
-        Ok(n) => n,
-        Err(_) => {
-            error!("Failed to parse number of bytes");
-            return Err(());
-        }
-    };
-
-    let command = BalloonControlCommand::Adjust { num_bytes };
-    vms_request(&VmRequest::BalloonCommand(command), args)
-}
-
 fn create_qcow2(mut args: std::env::Args) -> std::result::Result<(), ()> {
     if args.len() != 2 {
         print_help("crosvm create_qcow2", "PATH SIZE", &[]);
@@ -756,11 +666,7 @@ fn crosvm_main() -> std::result::Result<(), ()> {
             print_usage();
             Ok(())
         }
-        Some("stop") => stop_vms(args),
-        Some("suspend") => suspend_vms(args),
-        Some("resume") => resume_vms(args),
         Some("run") => run_vm(args),
-        Some("balloon") => balloon_vms(args),
         Some("create_qcow2") => create_qcow2(args),
         Some("disk") => disk_cmd(args),
         Some(c) => {
