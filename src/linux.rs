@@ -24,7 +24,6 @@ use devices::virtio::{self, VirtioDevice};
 use devices::{self, HostBackendDeviceProvider, PciDevice, VirtioPciDevice, XhciController};
 use kvm::*;
 use qcow::{self, ImageType, QcowFile};
-use rand_ish::SimpleRng;
 use remain::sorted;
 use sync::{Condvar, Mutex};
 use sys_util::{
@@ -414,16 +413,6 @@ fn run_control(
     if let Err(e) = poll_ctx.add(&stdin_handle, Token::Stdin) {
         warn!("failed to add stdin to poll context: {}", e);
     }
-
-
-    // Used to add jitter to timer values so that we don't have a thundering herd problem when
-    // multiple VMs are running.
-    let mut simple_rng = SimpleRng::new(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time went backwards")
-            .subsec_nanos() as u64,
-    );
 
     let mut vcpu_handles = Vec::with_capacity(linux.vcpus.len());
     let vcpu_thread_barrier = Arc::new(Barrier::new(linux.vcpus.len() + 1));

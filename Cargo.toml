@@ -13,11 +13,9 @@ members = ["qcow_utils"]
 exclude = [
     "assertions",
     "data_model",
-    "rand_ish",
     "sync",
     "sys_util",
     "syscall_defines",
-    "tempfile",
 ]
 
 [features]
@@ -37,7 +35,6 @@ kvm = { path = "kvm" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
 qcow = { path = "qcow" }
-rand_ish = { path = "rand_ish" }
 remain = "*"
 resources = { path = "resources" }
 sync = { path = "sync" }
@@ -57,4 +54,4 @@ poll_token_derive = { path = "sys_util/poll_token_derive" }
 sync = { path = "sync" }
 sys_util = { path = "sys_util" }
 syscall_defines = { path = "syscall_defines" }
-tempfile = { path = "tempfile" }
+
