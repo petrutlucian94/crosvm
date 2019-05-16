@@ -22,14 +22,12 @@ exclude = [
 
 [features]
 default-no-sandbox = []
-plugin = ["protos/plugin", "crosvm_plugin", "protobuf"]
 
 [dependencies]
 arch = { path = "arch" }
 assertions = { path = "assertions" }
 bit_field = { path = "bit_field" }
 byteorder = "=1.1.0"
-crosvm_plugin = { path = "crosvm_plugin", optional = true }
 data_model = "*"
 devices = { path = "devices" }
 enumn = { path = "enumn" }
@@ -39,8 +37,6 @@ kvm = { path = "kvm" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
 net_util = { path = "net_util" }
-protobuf = { version = "2.3", optional = true }
-protos = { path = "protos", optional = true }
 qcow = { path = "qcow" }
 rand_ish = { path = "rand_ish" }
 remain = "*"
