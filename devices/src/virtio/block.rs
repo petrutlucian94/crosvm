@@ -23,7 +23,6 @@ use sys_util::{
 };
 
 use data_model::{DataInit, Le16, Le32, Le64};
-use vm_control::{DiskControlCommand, DiskControlResponseSocket, DiskControlResult};
 
 use super::{
     DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_CONFIG_CHANGED,
@@ -662,26 +661,6 @@ impl<T: DiskFile> Worker<T> {
         used_count > 0
     }
 
-    fn resize(&mut self, new_size: u64) -> DiskControlResult {
-        if self.read_only {
-            error!("Attempted to resize read-only block device");
-            return DiskControlResult::Err(SysError::new(libc::EROFS));
-        }
-
-        info!("Resizing block device to {} bytes", new_size);
-
-        if let Err(e) = self.disk_image.set_len(new_size) {
-            error!("Resizing disk failed! {}", e);
-            return DiskControlResult::Err(SysError::new(libc::EIO));
-        }
-
-        if let Ok(new_disk_size) = self.disk_image.seek(SeekFrom::End(0)) {
-            let mut disk_size = self.disk_size.lock();
-            *disk_size = new_disk_size;
-        }
-        DiskControlResult::Ok
-    }
-
     fn signal_used_queue(&self) {
         self.interrupt_status
             .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
@@ -703,7 +682,6 @@ impl<T: DiskFile> Worker<T> {
         enum Token {
             FlushTimer,
             QueueAvailable,
-            ControlRequest,
             InterruptResample,
             Kill,
         }

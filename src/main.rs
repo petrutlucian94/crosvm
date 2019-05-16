@@ -22,10 +22,6 @@ use qcow::QcowFile;
 use sys_util::{
     debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child, warn,
 };
-use vm_control::{
-    BalloonControlCommand, DiskControlCommand, MaybeOwnedFd,
-    VmControlRequestSocket, VmRequest, VmResponse,
-};
 
 use crate::argument::{print_help, set_arguments, Argument};
 
@@ -75,20 +71,12 @@ pub struct Config {
     android_fstab: Option<PathBuf>,
     initrd_path: Option<PathBuf>,
     params: Vec<String>,
-    socket_path: Option<PathBuf>,
     disks: Vec<DiskOption>,
     host_ip: Option<net::Ipv4Addr>,
     netmask: Option<net::Ipv4Addr>,
     mac_address: Option<net_util::MacAddress>,
     tap_fd: Vec<RawFd>,
-    cid: Option<u64>,
     shared_dirs: Vec<(PathBuf, String)>,
-    sandbox: bool,
-    virtio_single_touch: Option<TouchDeviceOption>,
-    virtio_trackpad: Option<TouchDeviceOption>,
-    virtio_mouse: Option<PathBuf>,
-    virtio_keyboard: Option<PathBuf>,
-    virtio_input_evdevs: Vec<PathBuf>,
     split_irqchip: bool,
 }
 
@@ -102,20 +90,12 @@ impl Default for Config {
             android_fstab: None,
             initrd_path: None,
             params: Vec::new(),
-            socket_path: None,
             disks: Vec::new(),
             host_ip: None,
             netmask: None,
             mac_address: None,
             tap_fd: Vec::new(),
-            cid: None,
             shared_dirs: Vec::new(),
-            sandbox: !cfg!(feature = "default-no-sandbox"),
-            virtio_single_touch: None,
-            virtio_trackpad: None,
-            virtio_mouse: None,
-            virtio_keyboard: None,
-            virtio_input_evdevs: Vec::new(),
             split_irqchip: false,
         }
     }
@@ -320,43 +300,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
                         })?,
                 )
         }
-        "socket" => {
-            if cfg.socket_path.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`socket` already given".to_owned(),
-                ));
-            }
-            let mut socket_path = PathBuf::from(value.unwrap());
-            if socket_path.is_dir() {
-                socket_path.push(format!("crosvm-{}.sock", getpid()));
-            }
-            if socket_path.exists() {
-                return Err(argument::Error::InvalidValue {
-                    value: socket_path.to_string_lossy().into_owned(),
-                    expected: "this socket path already exists",
-                });
-            }
-            cfg.socket_path = Some(socket_path);
-        }
-        "disable-sandbox" => {
-            cfg.sandbox = false;
-        }
-        "cid" => {
-            if cfg.cid.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`cid` alread given".to_owned(),
-                ));
-            }
-            cfg.cid = Some(
-                value
-                    .unwrap()
-                    .parse()
-                    .map_err(|_| argument::Error::InvalidValue {
-                        value: value.unwrap().to_owned(),
-                        expected: "this value for `cid` must be an unsigned integer",
-                    })?,
-            );
-        }
         "shared-dir" => {
             // Formatted as <src:tag>.
             let param = value.unwrap();
@@ -386,81 +329,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
             }
 
             cfg.shared_dirs.push((src, tag));
-        }
-        "tap-fd" => {
-            cfg.tap_fd.push(
-                value
-                    .unwrap()
-                    .parse()
-                    .map_err(|_| argument::Error::InvalidValue {
-                        value: value.unwrap().to_owned(),
-                        expected: "this value for `tap-fd` must be an unsigned integer",
-                    })?,
-            );
-        }
-        "single-touch" => {
-            if cfg.virtio_single_touch.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`single-touch` already given".to_owned(),
-                ));
-            }
-            let mut it = value.unwrap().split(":");
-
-            let mut single_touch_spec =
-                TouchDeviceOption::new(PathBuf::from(it.next().unwrap().to_owned()));
-            if let Some(width) = it.next() {
-                single_touch_spec.width = width.trim().parse().unwrap();
-            }
-            if let Some(height) = it.next() {
-                single_touch_spec.height = height.trim().parse().unwrap();
-            }
-
-            cfg.virtio_single_touch = Some(single_touch_spec);
-        }
-        "trackpad" => {
-            if cfg.virtio_trackpad.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`trackpad` already given".to_owned(),
-                ));
-            }
-            let mut it = value.unwrap().split(":");
-
-            let mut trackpad_spec =
-                TouchDeviceOption::new(PathBuf::from(it.next().unwrap().to_owned()));
-            if let Some(width) = it.next() {
-                trackpad_spec.width = width.trim().parse().unwrap();
-            }
-            if let Some(height) = it.next() {
-                trackpad_spec.height = height.trim().parse().unwrap();
-            }
-
-            cfg.virtio_trackpad = Some(trackpad_spec);
-        }
-        "mouse" => {
-            if cfg.virtio_mouse.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`mouse` already given".to_owned(),
-                ));
-            }
-            cfg.virtio_mouse = Some(PathBuf::from(value.unwrap().to_owned()));
-        }
-        "keyboard" => {
-            if cfg.virtio_keyboard.is_some() {
-                return Err(argument::Error::TooManyArguments(
-                    "`keyboard` already given".to_owned(),
-                ));
-            }
-            cfg.virtio_keyboard = Some(PathBuf::from(value.unwrap().to_owned()));
-        }
-        "evdev" => {
-            let dev_path = PathBuf::from(value.unwrap());
-            if !dev_path.exists() {
-                return Err(argument::Error::InvalidValue {
-                    value: value.unwrap().to_owned(),
-                    expected: "this input device path does not exist",
-                });
-            }
-            cfg.virtio_input_evdevs.push(dev_path);
         }
         "split-irqchip" => {
             cfg.split_irqchip = true;
@@ -502,19 +370,8 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
                           "IP address to assign to host tap interface."),
           Argument::value("netmask", "NETMASK", "Netmask for VM subnet."),
           Argument::value("mac", "MAC", "MAC address for VM."),
-          Argument::short_value('s',
-                                "socket",
-                                "PATH",
-                                "Path to put the control socket. If PATH is a directory, a name will be generated."),
-          Argument::flag("disable-sandbox", "Run all devices in one, non-sandboxed process."),
-          Argument::value("cid", "CID", "Context ID for virtual sockets."),
           Argument::value("shared-dir", "PATH:TAG",
                           "Directory to be shared with a VM as a source:tag pair. Can be given more than once."),
-          Argument::value("evdev", "PATH", "Path to an event device node. The device will be grabbed (unusable from the host) and made available to the guest with the same configuration it shows on the host"),
-          Argument::value("single-touch", "PATH:WIDTH:HEIGHT", "Path to a socket from where to read single touch input events (such as those from a touchscreen) and write status updates to, optionally followed by width and height (defaults to 800x1280)."),
-          Argument::value("trackpad", "PATH:WIDTH:HEIGHT", "Path to a socket from where to read trackpad input events and write status updates to, optionally followed by screen width and height (defaults to 800x1280)."),
-          Argument::value("mouse", "PATH", "Path to a socket from where to read mouse input events and write status updates to."),
-          Argument::value("keyboard", "PATH", "Path to a socket from where to read keyboard input events and write status updates to."),
           #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
           Argument::flag("split-irqchip", "(EXPERIMENTAL) enable split-irqchip support"),
           Argument::short_flag('h', "help", "Print help message.")];
@@ -600,55 +457,12 @@ fn create_qcow2(mut args: std::env::Args) -> std::result::Result<(), ()> {
     Ok(())
 }
 
-fn disk_cmd(mut args: std::env::Args) -> std::result::Result<(), ()> {
-    if args.len() < 2 {
-        print_help("crosvm disk", "SUBCOMMAND VM_SOCKET...", &[]);
-        println!("Manage attached virtual disk devices.");
-        println!("Subcommands:");
-        println!("  resize DISK_INDEX NEW_SIZE VM_SOCKET");
-        return Err(());
-    }
-    let subcommand: &str = &args.nth(0).unwrap();
-
-    let request = match subcommand {
-        "resize" => {
-            let disk_index = match args.nth(0).unwrap().parse::<usize>() {
-                Ok(n) => n,
-                Err(_) => {
-                    error!("Failed to parse disk index");
-                    return Err(());
-                }
-            };
-
-            let new_size = match args.nth(0).unwrap().parse::<u64>() {
-                Ok(n) => n,
-                Err(_) => {
-                    error!("Failed to parse disk size");
-                    return Err(());
-                }
-            };
-
-            VmRequest::DiskCommand {
-                disk_index,
-                command: DiskControlCommand::Resize { new_size },
-            }
-        }
-        _ => {
-            error!("Unknown disk subcommand '{}'", subcommand);
-            return Err(());
-        }
-    };
-
-    vms_request(&request, args)
-}
 
 fn print_usage() {
     print_help("crosvm", "[stop|run]", &[]);
     println!("Commands:");
-    println!("    stop - Stops crosvm instances via their control sockets.");
     println!("    run  - Start a new crosvm instance.");
     println!("    create_qcow2  - Create a new qcow2 disk image file.");
-    println!("    disk - Manage attached virtual disk devices.");
 }
 
 fn crosvm_main() -> std::result::Result<(), ()> {

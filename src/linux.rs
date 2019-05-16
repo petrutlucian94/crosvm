@@ -11,7 +11,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, stdin, Read};
 use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::str;
 use std::sync::{Arc, Barrier};
@@ -29,18 +28,13 @@ use qcow::{self, ImageType, QcowFile};
 use rand_ish::SimpleRng;
 use remain::sorted;
 use sync::{Condvar, Mutex};
-use sys_util::net::{UnixSeqpacket, UnixSeqpacketListener, UnlinkUnixSeqpacketListener};
 use sys_util::{
     self, error, flock,
     info, set_cpu_affinity,
     warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
     Terminal, SIGRTMIN,
 };
-use vm_control::{
-    BalloonControlCommand, BalloonControlRequestSocket, BalloonControlResponseSocket,
-    DiskControlCommand, DiskControlRequestSocket, DiskControlResponseSocket, DiskControlResult,
-    VmControlResponseSocket, VmRunMode
-};
+use vm_control::{VmRunMode};
 
 use crate::{Config, DiskOption, TouchDeviceOption};
 
@@ -54,14 +48,11 @@ use x86_64::X8664arch as Arch;
 #[sorted]
 #[derive(Debug)]
 pub enum Error {
-    BalloonDeviceNew(virtio::BalloonError),
     BlockDeviceNew(sys_util::Error),
     BuildVm(<Arch as LinuxArch>::Error),
     CloneEventFd(sys_util::Error),
     CreateEventFd(sys_util::Error),
     CreatePollContext(sys_util::Error),
-    CreateSocket(io::Error),
-    CreateTapDevice(NetError),
     DetectImageType(qcow::Error),
     Disk(io::Error),
     DiskImageLock(sys_util::Error),
@@ -80,7 +71,6 @@ pub enum Error {
     QcowDeviceCreate(qcow::Error),
     ReadLowmemAvailable(io::Error),
     ReadLowmemMargin(io::Error),
-    RegisterBalloon(arch::DeviceRegistrationError),
     RegisterBlock(arch::DeviceRegistrationError),
     RegisterNet(arch::DeviceRegistrationError),
     RegisterRng(arch::DeviceRegistrationError),
@@ -97,15 +87,12 @@ impl Display for Error {
 
         #[sorted]
         match self {
-            BalloonDeviceNew(e) => write!(f, "failed to create balloon: {}", e),
             BlockDeviceNew(e) => write!(f, "failed to create block device: {}", e),
             BuildVm(e) => write!(f, "The architecture failed to build the vm: {}", e),
             CloneEventFd(e) => write!(f, "failed to clone eventfd: {}", e),
             CreateCrasClient(e) => write!(f, "failed to create cras client: {}", e),
             CreateEventFd(e) => write!(f, "failed to create eventfd: {}", e),
             CreatePollContext(e) => write!(f, "failed to create poll context: {}", e),
-            CreateSocket(e) => write!(f, "failed to create socket: {}", e),
-            CreateTapDevice(e) => write!(f, "failed to create tap device: {}", e),
             DetectImageType(e) => write!(f, "failed to detect disk image type: {}", e),
             DevicePivotRoot(e) => write!(f, "failed to pivot root device: {}", e),
             Disk(e) => write!(f, "failed to load disk image: {}", e),
@@ -137,7 +124,6 @@ impl Display for Error {
                 "failed to read /sys/kernel/mm/chromeos-low_mem/margin: {}",
                 e
             ),
-            RegisterBalloon(e) => write!(f, "error registering balloon device: {}", e),
             RegisterBlock(e) => write!(f, "error registering block device: {}", e),
             RegisterNet(e) => write!(f, "error registering net device: {}", e),
             RegisterRng(e) => write!(f, "error registering rng device: {}", e),
@@ -154,33 +140,11 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 type Result<T> = std::result::Result<T, Error>;
-
-// TODO(lpetrut): may no longer be needed as we drop wayland support.
-enum TaggedControlSocket {
-    Vm(VmControlResponseSocket),
-}
-
-impl AsRef<UnixSeqpacket> for TaggedControlSocket {
-    fn as_ref(&self) -> &UnixSeqpacket {
-        use self::TaggedControlSocket::*;
-        match &self {
-            Vm(ref socket) => socket,
-        }
-    }
-}
-
-impl AsRawFd for TaggedControlSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.as_ref().as_raw_fd()
-    }
-}
-
 type DeviceResult<T = VirtioDeviceStub> = std::result::Result<T, Error>;
 
 fn create_block_device(
     cfg: &Config,
     disk: &DiskOption,
-    disk_device_socket: DiskControlResponseSocket,
 ) -> DeviceResult {
     // Special case '/proc/self/fd/*' paths. The FD is already open, just use it.
     let raw_image: File = if disk.path.parent() == Some(Path::new("/proc/self/fd")) {
@@ -206,14 +170,14 @@ fn create_block_device(
     let dev = match image_type {
         ImageType::Raw => {
             // Access as a raw block device.
-            let dev = virtio::Block::new(raw_image, disk.read_only, Some(disk_device_socket))
+            let dev = virtio::Block::new(raw_image, disk.read_only)
                 .map_err(Error::BlockDeviceNew)?;
             Box::new(dev) as Box<dyn VirtioDevice>
         }
         ImageType::Qcow2 => {
             // Valid qcow header present
             let qcow_image = QcowFile::from(raw_image).map_err(Error::QcowDeviceCreate)?;
-            let dev = virtio::Block::new(qcow_image, disk.read_only, Some(disk_device_socket))
+            let dev = virtio::Block::new(qcow_image, disk.read_only)
                 .map_err(Error::BlockDeviceNew)?;
             Box::new(dev) as Box<dyn VirtioDevice>
         }
@@ -231,174 +195,15 @@ fn create_rng_device(cfg: &Config) -> DeviceResult {
         dev: Box::new(dev),
     })
 }
-
-fn create_single_touch_device(cfg: &Config, single_touch_spec: &TouchDeviceOption) -> DeviceResult {
-    let socket = create_input_socket(&single_touch_spec.path).map_err(|e| {
-        error!("failed configuring virtio single touch: {:?}", e);
-        e
-    })?;
-
-    let dev = virtio::new_single_touch(socket, single_touch_spec.width, single_touch_spec.height)
-        .map_err(Error::InputDeviceNew)?;
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_trackpad_device(cfg: &Config, trackpad_spec: &TouchDeviceOption) -> DeviceResult {
-    let socket = create_input_socket(&trackpad_spec.path).map_err(|e| {
-        error!("failed configuring virtio trackpad: {}", e);
-        e
-    })?;
-
-    let dev = virtio::new_trackpad(socket, trackpad_spec.width, trackpad_spec.height)
-        .map_err(Error::InputDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_mouse_device(cfg: &Config, mouse_socket: &Path) -> DeviceResult {
-    let socket = create_input_socket(&mouse_socket).map_err(|e| {
-        error!("failed configuring virtio mouse: {}", e);
-        e
-    })?;
-
-    let dev = virtio::new_mouse(socket).map_err(Error::InputDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_keyboard_device(cfg: &Config, keyboard_socket: &Path) -> DeviceResult {
-    let socket = create_input_socket(&keyboard_socket).map_err(|e| {
-        error!("failed configuring virtio keyboard: {}", e);
-        e
-    })?;
-
-    let dev = virtio::new_keyboard(socket).map_err(Error::InputDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_vinput_device(cfg: &Config, dev_path: &Path) -> DeviceResult {
-    let dev_file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(dev_path)
-        .map_err(|e| Error::OpenVinput(dev_path.to_owned(), e))?;
-
-    let dev = virtio::new_evdev(dev_file).map_err(Error::InputDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_balloon_device(cfg: &Config, socket: BalloonControlResponseSocket) -> DeviceResult {
-    let dev = virtio::Balloon::new(socket).map_err(Error::BalloonDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_tap_net_device(cfg: &Config, tap_fd: RawFd) -> DeviceResult {
-    // Safe because we ensure that we get a unique handle to the fd.
-    let tap = unsafe {
-        Tap::from_raw_fd(tap_fd).map_err(Error::CreateTapDevice)?
-    };
-
-    let dev = virtio::Net::from(tap).map_err(Error::NetDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        dev: Box::new(dev),
-    })
-}
-
-fn create_net_device(
-    cfg: &Config,
-    host_ip: Ipv4Addr,
-    netmask: Ipv4Addr,
-    mac_address: MacAddress,
-    mem: &GuestMemory,
-) -> DeviceResult {
-    let dev = virtio::Net::<Tap>::new(host_ip, netmask, mac_address).map_err(Error::NetDeviceNew)?;
-
-    Ok(VirtioDeviceStub {
-        Box::new(dev) as Box<dyn VirtioDevice>,
-    })
-}
-
-fn create_virtio_devices(
-    cfg: &Config,
-    mem: &GuestMemory,
-    _exit_evt: &EventFd,
-    balloon_device_socket: BalloonControlResponseSocket,
-    disk_device_sockets: &mut Vec<DiskControlResponseSocket>,
-) -> DeviceResult<Vec<VirtioDeviceStub>> {
-    let mut devs = Vec::new();
-
-    for disk in &cfg.disks {
-        let disk_device_socket = disk_device_sockets.remove(0);
-        devs.push(create_block_device(cfg, disk, disk_device_socket)?);
-    }
-
-    devs.push(create_rng_device(cfg)?);
-
-    if let Some(single_touch_spec) = &cfg.virtio_single_touch {
-        devs.push(create_single_touch_device(cfg, single_touch_spec)?);
-    }
-
-    if let Some(trackpad_spec) = &cfg.virtio_trackpad {
-        devs.push(create_trackpad_device(cfg, trackpad_spec)?);
-    }
-
-    if let Some(mouse_socket) = &cfg.virtio_mouse {
-        devs.push(create_mouse_device(cfg, mouse_socket)?);
-    }
-
-    if let Some(keyboard_socket) = &cfg.virtio_keyboard {
-        devs.push(create_keyboard_device(cfg, keyboard_socket)?);
-    }
-
-    for dev_path in &cfg.virtio_input_evdevs {
-        devs.push(create_vinput_device(cfg, dev_path)?);
-    }
-
-    devs.push(create_balloon_device(cfg, balloon_device_socket)?);
-
-    // We checked above that if the IP is defined, then the netmask is, too.
-    for tap_fd in &cfg.tap_fd {
-        devs.push(create_tap_net_device(cfg, *tap_fd)?);
-    }
-
-    if let (Some(host_ip), Some(netmask), Some(mac_address)) =
-        (cfg.host_ip, cfg.netmask, cfg.mac_address)
-    {
-        devs.push(create_net_device(cfg, host_ip, netmask, mac_address, mem)?);
-    }
-
-    Ok(devs)
-}
-
 fn create_devices(
     cfg: Config,
     mem: &GuestMemory,
     exit_evt: &EventFd,
-    balloon_device_socket: BalloonControlResponseSocket,
-    disk_device_sockets: &mut Vec<DiskControlResponseSocket>,
 ) -> DeviceResult<Vec<(Box<dyn PciDevice>)>> {
     let stubs = create_virtio_devices(
         &cfg,
         mem,
         exit_evt,
-        balloon_device_socket,
-        disk_device_sockets,
     )?;
 
     let mut pci_devices = Vec::new();
@@ -426,15 +231,6 @@ fn raw_fd_from_path(path: &Path) -> Result<RawFd> {
         .and_then(|fd_osstr| fd_osstr.to_str())
         .and_then(|fd_str| fd_str.parse::<c_int>().ok())
         .ok_or(Error::InvalidFdPath)?;
-}
-
-fn create_input_socket(path: &Path) -> Result<UnixStream> {
-    if path.parent() == Some(Path::new("/proc/self/fd")) {
-        // Safe because we will validate |raw_fd|.
-        unsafe { Ok(UnixStream::from_raw_fd(raw_fd_from_path(path)?)) }
-    } else {
-        UnixStream::connect(path).map_err(Error::InputEventsOpen)
-    }
 }
 
 
@@ -577,63 +373,23 @@ pub fn run_config(cfg: Config) -> Result<()> {
         extra_kernel_params: cfg.params.clone(),
     };
 
-    let control_server_socket = match &cfg.socket_path {
-        Some(path) => Some(UnlinkUnixSeqpacketListener(
-            UnixSeqpacketListener::bind(path).map_err(Error::CreateSocket)?,
-        )),
-        None => None,
-    };
-
-    let sandbox = cfg.sandbox;
     let linux = Arch::build_vm(components, cfg.split_irqchip, |m, e| {
         create_devices(
             cfg,
             m,
             e,
-            balloon_device_socket,
-            &mut disk_device_sockets
         )
     })
     .map_err(Error::BuildVm)?;
 
     run_control(
-        linux,
-        control_server_socket,
-        control_sockets,
-        balloon_host_socket,
-        &disk_host_sockets,
-        sigchld_fd,
-        sandbox,
+        linux
     )
 }
 
 fn run_control(
     mut linux: RunnableLinuxVm,
-    control_server_socket: Option<UnlinkUnixSeqpacketListener>,
-    mut control_sockets: Vec<TaggedControlSocket>,
-    balloon_host_socket: BalloonControlRequestSocket,
-    disk_host_sockets: &[DiskControlRequestSocket],
-    sandbox: bool,
 ) -> Result<()> {
-    // Paths to get the currently available memory and the low memory threshold.
-    const LOWMEM_MARGIN: &str = "/sys/kernel/mm/chromeos-low_mem/margin";
-    const LOWMEM_AVAILABLE: &str = "/sys/kernel/mm/chromeos-low_mem/available";
-
-    // The amount of additional memory to claim back from the VM whenever the system is
-    // low on memory.
-    const ONE_GB: u64 = (1 << 30);
-
-    let max_balloon_memory = match linux.vm.get_memory().memory_size() {
-        // If the VM has at least 1.5 GB, the balloon driver can consume all but the last 1 GB.
-        n if n >= (ONE_GB / 2) * 3 => n - ONE_GB,
-        // Otherwise, if the VM has at least 500MB the balloon driver will consume at most
-        // half of it.
-        n if n >= (ONE_GB / 2) => n / 2,
-        // Otherwise, the VM is too small for us to take memory away from it.
-        _ => 0,
-    };
-    let mut current_balloon_memory: u64 = 0;
-    let balloon_memory_increment: u64 = max_balloon_memory / 16;
 
     #[derive(PollToken)]
     enum Token {
@@ -660,26 +416,6 @@ fn run_control(
         warn!("failed to add stdin to poll context: {}", e);
     }
 
-    if let Some(socket_server) = &control_server_socket {
-        poll_ctx
-            .add(socket_server, Token::VmControlServer)
-            .map_err(Error::PollContextAdd)?;
-    }
-    for (index, socket) in control_sockets.iter().enumerate() {
-        poll_ctx
-            .add(socket.as_ref(), Token::VmControl { index })
-            .map_err(Error::PollContextAdd)?;
-    }
-
-    // Watch for low memory notifications and take memory back from the VM.
-    let low_mem = File::open("/dev/chromeos-low-mem").ok();
-    if let Some(low_mem) = &low_mem {
-        poll_ctx
-            .add(low_mem, Token::LowMemory)
-            .map_err(Error::PollContextAdd)?;
-    } else {
-        warn!("Unable to open low mem indicator, maybe not a chrome os kernel");
-    }
 
     // Used to add jitter to timer values so that we don't have a thundering herd problem when
     // multiple VMs are running.
@@ -756,36 +492,6 @@ fn run_control(
                 Token::Stdin => {
                     let _ = poll_ctx.delete(&stdin_handle);
                 }
-                Token::CheckAvailableMemory => {}
-                Token::LowMemory => {}
-                Token::LowmemTimer => {}
-                Token::VmControlServer => {}
-                Token::VmControl { index } => {
-                    // It's possible more data is readable and buffered while the socket is hungup,
-                    // so don't delete the socket from the poll context until we're sure all the
-                    // data is read.
-                    match control_sockets
-                        .get(index)
-                        .map(|s| s.as_ref().get_readable_bytes())
-                    {
-                        Some(Ok(0)) | Some(Err(_)) => vm_control_indices_to_remove.push(index),
-                        Some(Ok(x)) => info!("control index {} has {} bytes readable", index, x),
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        // Sort in reverse so the highest indexes are removed first. This removal algorithm
-        // preserved correct indexes as each element is removed.
-        vm_control_indices_to_remove.sort_unstable_by(|a, b| b.cmp(a));
-        vm_control_indices_to_remove.dedup();
-        for index in vm_control_indices_to_remove {
-            control_sockets.swap_remove(index);
-            if let Some(socket) = control_sockets.get(index) {
-                poll_ctx
-                    .add(socket, Token::VmControl { index })
-                    .map_err(Error::PollContextAdd)?;
             }
         }
     }
