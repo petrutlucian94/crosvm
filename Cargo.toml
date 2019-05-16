@@ -48,6 +48,7 @@ resources = { path = "resources" }
 sync = { path = "sync" }
 sys_util = "*"
 vm_control = { path = "vm_control" }
+whp = { path = "whp" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = { path = "x86_64" }

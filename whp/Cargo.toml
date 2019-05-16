@@ -1,0 +1,10 @@
+[package]
+name = "whp"
+version = "0.1.0"
+authors = ["Jenny Mankin"]
+edition = "2018"
+
+[dependencies]
+libwhp = { path = "../../libwhp" }
+vmm-vcpu = { path = "../../vmm-vcpu" }
+libc = "*"
