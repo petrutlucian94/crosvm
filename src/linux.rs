@@ -31,10 +31,10 @@ use remain::sorted;
 use sync::{Condvar, Mutex};
 use sys_util::net::{UnixSeqpacket, UnixSeqpacketListener, UnlinkUnixSeqpacketListener};
 use sys_util::{
-    self, block_signal, clear_signal, error, flock, get_blocked_signals,
-    info, register_signal_handler, set_cpu_affinity,
+    self, error, flock,
+    info, set_cpu_affinity,
     warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
-    SignalFd, Terminal, SIGRTMIN,
+    Terminal, SIGRTMIN,
 };
 use vm_control::{
     BalloonControlCommand, BalloonControlRequestSocket, BalloonControlResponseSocket,
@@ -56,12 +56,10 @@ use x86_64::X8664arch as Arch;
 pub enum Error {
     BalloonDeviceNew(virtio::BalloonError),
     BlockDeviceNew(sys_util::Error),
-    BlockSignal(sys_util::signal::Error),
     BuildVm(<Arch as LinuxArch>::Error),
     CloneEventFd(sys_util::Error),
     CreateEventFd(sys_util::Error),
     CreatePollContext(sys_util::Error),
-    CreateSignalFd(sys_util::SignalFdError),
     CreateSocket(io::Error),
     CreateTapDevice(NetError),
     DetectImageType(qcow::Error),
@@ -86,10 +84,8 @@ pub enum Error {
     RegisterBlock(arch::DeviceRegistrationError),
     RegisterNet(arch::DeviceRegistrationError),
     RegisterRng(arch::DeviceRegistrationError),
-    RegisterSignalHandler(sys_util::Error),
     ReserveMemory(sys_util::Error),
     RngDeviceNew(virtio::RngError),
-    SignalFd(sys_util::SignalFdError),
     SpawnVcpu(io::Error),
     VirtioPciDev(sys_util::Error),
 }
@@ -103,13 +99,11 @@ impl Display for Error {
         match self {
             BalloonDeviceNew(e) => write!(f, "failed to create balloon: {}", e),
             BlockDeviceNew(e) => write!(f, "failed to create block device: {}", e),
-            BlockSignal(e) => write!(f, "failed to block signal: {}", e),
             BuildVm(e) => write!(f, "The architecture failed to build the vm: {}", e),
             CloneEventFd(e) => write!(f, "failed to clone eventfd: {}", e),
             CreateCrasClient(e) => write!(f, "failed to create cras client: {}", e),
             CreateEventFd(e) => write!(f, "failed to create eventfd: {}", e),
             CreatePollContext(e) => write!(f, "failed to create poll context: {}", e),
-            CreateSignalFd(e) => write!(f, "failed to create signalfd: {}", e),
             CreateSocket(e) => write!(f, "failed to create socket: {}", e),
             CreateTapDevice(e) => write!(f, "failed to create tap device: {}", e),
             DetectImageType(e) => write!(f, "failed to detect disk image type: {}", e),
@@ -147,12 +141,10 @@ impl Display for Error {
             RegisterBlock(e) => write!(f, "error registering block device: {}", e),
             RegisterNet(e) => write!(f, "error registering net device: {}", e),
             RegisterRng(e) => write!(f, "error registering rng device: {}", e),
-            RegisterSignalHandler(e) => write!(f, "error registering signal handler: {}", e),
             ReserveMemory(e) => write!(f, "failed to reserve memory: {}", e),
             RngDeviceNew(e) => write!(f, "failed to set up rng: {}", e),
             SettingGidMap(e) => write!(f, "error setting GID map: {}", e),
             SettingUidMap(e) => write!(f, "error setting UID map: {}", e),
-            SignalFd(e) => write!(f, "failed to read signal fd: {}", e),
             SpawnVcpu(e) => write!(f, "failed to spawn VCPU thread: {}", e),
             VirtioPciDev(e) => write!(f, "failed to create virtio pci dev: {}", e),
         }
@@ -445,16 +437,6 @@ fn create_input_socket(path: &Path) -> Result<UnixStream> {
     }
 }
 
-fn setup_vcpu_signal_handler() -> Result<()> {
-    unsafe {
-        extern "C" fn handle_signal() {}
-        // Our signal handler does nothing and is trivially async signal safe.
-        register_signal_handler(SIGRTMIN() + 0, handle_signal)
-            .map_err(Error::RegisterSignalHandler)?;
-    }
-    block_signal(SIGRTMIN() + 0).map_err(Error::BlockSignal)?;
-    Ok(())
-}
 
 #[derive(Default)]
 struct VcpuRunMode {
@@ -483,32 +465,10 @@ fn run_vcpu(
     thread::Builder::new()
         .name(format!("crosvm_vcpu{}", cpu_id))
         .spawn(move || {
-            let mut sig_ok = true;
-            match get_blocked_signals() {
-                Ok(mut v) => {
-                    v.retain(|&x| x != SIGRTMIN() + 0);
-                    if let Err(e) = vcpu.set_signal_mask(&v) {
-                        error!(
-                            "Failed to set the KVM_SIGNAL_MASK for vcpu {} : {}",
-                            cpu_id, e
-                        );
-                        sig_ok = false;
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to retrieve signal mask for vcpu {} : {}",
-                        cpu_id, e
-                    );
-                    sig_ok = false;
-                }
-            };
-
             start_barrier.wait();
 
             if sig_ok {
                 'vcpu_loop: loop {
-                    let mut interrupted_by_signal = false;
                     match vcpu.run() {
                         Ok(VcpuExit::IoIn { port, mut size }) => {
                             let mut data = [0; 8];
@@ -550,45 +510,12 @@ fn run_vcpu(
                         Ok(VcpuExit::SystemEvent(_, _)) => break,
                         Ok(r) => warn!("unexpected vcpu exit: {:?}", r),
                         Err(e) => match e.errno() {
-                            libc::EINTR => interrupted_by_signal = true,
                             libc::EAGAIN => {}
                             _ => {
                                 error!("vcpu hit unknown error: {}", e);
                                 break;
                             }
                         },
-                    }
-
-                    if interrupted_by_signal {
-                        // Try to clear the signal that we use to kick VCPU if it is pending before
-                        // attempting to handle pause requests.
-                        if let Err(e) = clear_signal(SIGRTMIN() + 0) {
-                            error!("failed to clear pending signal: {}", e);
-                            break;
-                        }
-                        let mut run_mode_lock = run_mode_arc.mtx.lock();
-                        loop {
-                            match *run_mode_lock {
-                                VmRunMode::Running => break,
-                                VmRunMode::Suspending => {
-                                    // On KVM implementations that use a paravirtualized clock (e.g.
-                                    // x86), a flag must be set to indicate to the guest kernel that
-                                    // a VCPU was suspended. The guest kernel will use this flag to
-                                    // prevent the soft lockup detection from triggering when this
-                                    // VCPU resumes, which could happen days later in realtime.
-                                    if requires_kvmclock_ctrl {
-                                        if let Err(e) = vcpu.kvmclock_ctrl() {
-                                            error!("failed to signal to kvm that vcpu {} is being suspended: {}", cpu_id, e);
-                                        }
-                                    }
-                                }
-                                VmRunMode::Exiting => break 'vcpu_loop,
-                            }
-                            // Give ownership of our exclusive lock to the condition variable that
-                            // will block. When the condition variable is notified, `wait` will
-                            // unblock and return a new exclusive lock.
-                            run_mode_lock = run_mode_arc.cvar.wait(run_mode_lock);
-                        }
                     }
                 }
             }
@@ -629,11 +556,6 @@ fn file_to_u64<P: AsRef<Path>>(path: P) -> io::Result<u64> {
 }
 
 pub fn run_config(cfg: Config) -> Result<()> {
-    // Masking signals is inherently dangerous, since this can persist across clones/execs. Do this
-    // before any jailed devices have been spawned, so that we can catch any of them that fail very
-    // quickly.
-    let sigchld_fd = SignalFd::new(libc::SIGCHLD).map_err(Error::CreateSignalFd)?;
-
     let initrd_image = if let Some(initrd_path) = &cfg.initrd_path {
         Some(File::open(initrd_path).map_err(|e| Error::OpenInitrd(initrd_path.clone(), e))?)
     } else {
@@ -691,7 +613,6 @@ fn run_control(
     mut control_sockets: Vec<TaggedControlSocket>,
     balloon_host_socket: BalloonControlRequestSocket,
     disk_host_sockets: &[DiskControlRequestSocket],
-    sigchld_fd: SignalFd,
     sandbox: bool,
 ) -> Result<()> {
     // Paths to get the currently available memory and the low memory threshold.
@@ -718,7 +639,6 @@ fn run_control(
     enum Token {
         Exit,
         Stdin,
-        ChildSignal,
         CheckAvailableMemory,
         LowMemory,
         LowmemTimer,
@@ -739,9 +659,6 @@ fn run_control(
     if let Err(e) = poll_ctx.add(&stdin_handle, Token::Stdin) {
         warn!("failed to add stdin to poll context: {}", e);
     }
-    poll_ctx
-        .add(&sigchld_fd, Token::ChildSignal)
-        .map_err(Error::PollContextAdd)?;
 
     if let Some(socket_server) = &control_server_socket {
         poll_ctx
@@ -776,7 +693,6 @@ fn run_control(
     let mut vcpu_handles = Vec::with_capacity(linux.vcpus.len());
     let vcpu_thread_barrier = Arc::new(Barrier::new(linux.vcpus.len() + 1));
     let run_mode_arc = Arc::new(VcpuRunMode::default());
-    setup_vcpu_signal_handler()?;
     for (cpu_id, vcpu) in linux.vcpus.into_iter().enumerate() {
         let handle = run_vcpu(
             vcpu,
@@ -831,21 +747,6 @@ fn run_control(
                         }
                     }
                 }
-                Token::ChildSignal => {
-                    // Print all available siginfo structs, then exit the loop.
-                    while let Some(siginfo) = sigchld_fd.read().map_err(Error::SignalFd)? {
-                        let pid = siginfo.ssi_pid;
-                        let pid_label = match linux.pid_debug_label_map.get(&pid) {
-                            Some(label) => format!("{} (pid {})", label, pid),
-                            None => format!("pid {}", pid),
-                        };
-                        error!(
-                            "child {} died: signo {}, status {}, code {}",
-                            pid_label, siginfo.ssi_signo, siginfo.ssi_status, siginfo.ssi_code
-                        );
-                    }
-                    break 'poll;
-                }
             }
         }
 
@@ -855,7 +756,6 @@ fn run_control(
                 Token::Stdin => {
                     let _ = poll_ctx.delete(&stdin_handle);
                 }
-                Token::ChildSignal => {}
                 Token::CheckAvailableMemory => {}
                 Token::LowMemory => {}
                 Token::LowmemTimer => {}

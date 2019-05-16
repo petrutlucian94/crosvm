@@ -23,8 +23,6 @@ mod poll;
 mod raw_fd;
 mod seek_hole;
 mod shm;
-pub mod signal;
-mod signalfd;
 mod struct_util;
 mod tempdir;
 #[cfg(unix)]
@@ -43,8 +41,6 @@ pub use crate::mmap::*;
 pub use crate::poll::*;
 pub use crate::raw_fd::*;
 pub use crate::shm::*;
-pub use crate::signal::*;
-pub use crate::signalfd::*;
 pub use crate::struct_util::*;
 pub use crate::tempdir::*;
 #[cfg(unix)]
