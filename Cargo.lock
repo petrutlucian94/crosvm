@@ -378,13 +378,8 @@ dependencies = [
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
  "poll_token_derive 0.1.0",
  "sync 0.1.0",
- "syscall_defines 0.1.0",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
-
-[[package]]
-name = "syscall_defines"
-version = "0.1.0"
 
 [[package]]
 name = "tempfile"
