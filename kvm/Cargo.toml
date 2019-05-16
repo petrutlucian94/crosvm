@@ -8,3 +8,8 @@ edition = "2018"
 kvm_sys = { path = "../kvm_sys" }
 libc = "*"
 sys_util = { path = "../sys_util" }
+
+[dependencies.vm-memory]
+path = "../vm-memory"
+default-features = false
+features = ["backend-mmap"]

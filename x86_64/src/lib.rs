@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+extern crate vm_memory;
+
 mod fdt;
 
 const X86_64_FDT_MAX_SIZE: u64 = 0x200000;
@@ -61,6 +63,8 @@ use std::io::{self, stdout};
 use std::mem;
 use std::sync::Arc;
 
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
+
 use crate::bootparam::boot_params;
 use crate::bootparam::E820_RAM;
 use arch::{RunnableLinuxVm, VmComponents};
@@ -69,7 +73,7 @@ use kvm::*;
 use remain::sorted;
 use resources::SystemAllocator;
 use sync::Mutex;
-use sys_util::{Clock, EventFd, GuestAddress, GuestMemory, GuestMemoryError};
+use sys_util::{Clock, EventFd};
 
 #[sorted]
 #[derive(Debug)]

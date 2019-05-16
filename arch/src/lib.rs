@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+extern crate vm_memory;
+
 pub mod android;
 pub mod fdt;
 
@@ -13,6 +15,8 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 
+use vm_memory::GuestAddress, GuestMemory, GuestMemoryError;
+
 use devices::virtio::VirtioDevice;
 use devices::{
     Bus, BusDevice, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
@@ -21,7 +25,7 @@ use devices::{
 use kvm::{IoeventAddress, Kvm, Vcpu, Vm};
 use resources::SystemAllocator;
 use sync::Mutex;
-use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
+use sys_util::{EventFd};
 
 /// Holds the pieces needed to build a VM. Passed to `build_vm` in the `LinuxArch` trait below to
 /// create a `RunnableLinuxVm`.

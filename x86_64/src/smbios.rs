@@ -7,8 +7,9 @@ use std::mem;
 use std::result;
 use std::slice;
 
+use vm_memory::{GuestAddress, GuestMemory};
+
 use data_model::DataInit;
-use sys_util::{GuestAddress, GuestMemory};
 
 #[derive(Debug)]
 pub enum Error {

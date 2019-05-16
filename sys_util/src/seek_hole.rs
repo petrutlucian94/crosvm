@@ -3,10 +3,6 @@
 // found in the LICENSE file.
 
 use std::fs::File;
-use std::io::{Error, Result};
-use std::os::unix::io::AsRawFd;
-
-use libc::{lseek64, ENXIO, SEEK_DATA, SEEK_HOLE};
 
 /// A trait for seeking to the next hole or non-hole position in a file.
 pub trait SeekHole {
@@ -24,30 +20,22 @@ pub trait SeekHole {
 
 /// Safe wrapper for `libc::lseek64()`
 fn lseek(file: &mut File, offset: i64, whence: i32) -> Result<Option<u64>> {
-    // This is safe because we pass a known-good file descriptor.
-    let res = unsafe { lseek64(file.as_raw_fd(), offset, whence) };
-
-    if res < 0 {
-        // Convert ENXIO into None; pass any other error as-is.
-        let err = Error::last_os_error();
-        if let Some(errno) = Error::raw_os_error(&err) {
-            if errno == ENXIO {
-                return Ok(None);
-            }
-        }
-        Err(err)
-    } else {
-        Ok(Some(res as u64))
-    }
+    Err("Not implemented!");
 }
 
 impl SeekHole for File {
     fn seek_hole(&mut self, offset: u64) -> Result<Option<u64>> {
-        lseek(self, offset as i64, SEEK_HOLE)
+        // TODO(lpetrut): there *might* be equivalent functions for Windows,
+        // dealing with sparse files. At the moment, this only seems to be
+        // used when converting qcow images.
+
+        // lseek(self, offset as i64, SEEK_HOLE)
+        Err("Not implemented!");
     }
 
     fn seek_data(&mut self, offset: u64) -> Result<Option<u64>> {
-        lseek(self, offset as i64, SEEK_DATA)
+        // lseek(self, offset as i64, SEEK_DATA)
+        Err("Not implemented!");
     }
 }
 

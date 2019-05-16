@@ -1,0 +1,4 @@
+[submodule "vm-memory"]
+	path = vm-memory
+	url = https://github.com/rust-vmm/vm-memory
+	branch = master

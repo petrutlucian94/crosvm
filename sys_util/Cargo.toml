@@ -10,6 +10,6 @@ data_model = { path = "../data_model" } # provided by ebuild
 libc = "*"
 poll_token_derive = { version = "*", path = "poll_token_derive" }
 sync = { path = "../sync" } # provided by ebuild
-syscall_defines = { path = "../syscall_defines" } # provided by ebuild
+tempfile = "3.0.7"
 
 [workspace]

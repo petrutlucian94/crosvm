@@ -6,3 +6,8 @@ edition = "2018"
 [dependencies]
 libc = "*"
 sys_util = { path = "../sys_util" }
+
+[dependencies.vm-memory]
+path = "../vm-memory"
+default-features = false
+features = ["backend-mmap"]

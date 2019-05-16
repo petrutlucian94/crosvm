@@ -6,6 +6,8 @@ use std::alloc::Layout;
 use std::fmt::{self, Display};
 use std::{mem, result};
 
+use vm_memory::{GuestAddress, GuestMemory};
+
 use assertions::const_assert;
 use kvm;
 use kvm_sys::kvm_fpu;
@@ -13,7 +15,7 @@ use kvm_sys::kvm_msr_entry;
 use kvm_sys::kvm_msrs;
 use kvm_sys::kvm_regs;
 use kvm_sys::kvm_sregs;
-use sys_util::{self, GuestAddress, GuestMemory, LayoutAllocation};
+use sys_util::{self, LayoutAllocation};
 
 use crate::gdt;
 

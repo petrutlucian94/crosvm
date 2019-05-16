@@ -13,23 +13,18 @@ members = ["qcow_utils"]
 exclude = [
     "assertions",
     "data_model",
-    "rand_ish",
     "sync",
     "sys_util",
-    "syscall_defines",
-    "tempfile",
 ]
 
 [features]
 default-no-sandbox = []
-plugin = ["protos/plugin", "crosvm_plugin", "protobuf"]
 
 [dependencies]
 arch = { path = "arch" }
 assertions = { path = "assertions" }
 bit_field = { path = "bit_field" }
 byteorder = "=1.1.0"
-crosvm_plugin = { path = "crosvm_plugin", optional = true }
 data_model = "*"
 devices = { path = "devices" }
 enumn = { path = "enumn" }
@@ -38,11 +33,7 @@ kernel_loader = { path = "kernel_loader" }
 kvm = { path = "kvm" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
-net_util = { path = "net_util" }
-protobuf = { version = "2.3", optional = true }
-protos = { path = "protos", optional = true }
 qcow = { path = "qcow" }
-rand_ish = { path = "rand_ish" }
 remain = "*"
 resources = { path = "resources" }
 sync = { path = "sync" }
@@ -62,5 +53,3 @@ data_model = { path = "data_model" }
 poll_token_derive = { path = "sys_util/poll_token_derive" }
 sync = { path = "sync" }
 sys_util = { path = "sys_util" }
-syscall_defines = { path = "syscall_defines" }
-tempfile = { path = "tempfile" }

@@ -29,19 +29,11 @@ use std::fs::File;
 use std::io;
 use std::io::{stderr, Cursor, ErrorKind, Write};
 use std::mem;
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::path::PathBuf;
 use std::ptr::null;
 use std::sync::{MutexGuard, Once, ONCE_INIT};
 
-use libc::{
-    closelog, fcntl, localtime_r, openlog, time, time_t, tm, F_GETFD, LOG_NDELAY, LOG_PERROR,
-    LOG_PID, LOG_USER,
-};
-
 use sync::Mutex;
-
-use crate::getpid;
 
 const SYSLOG_PATH: &str = "/dev/log";
 
@@ -274,29 +266,6 @@ pub fn echo_stderr(enable: bool) {
     state.stderr = enable;
 }
 
-/// Retrieves the file descriptors owned by the global syslogger.
-///
-/// Does nothing if syslog was never initialized. If their are any file descriptors, they will be
-/// pushed into `fds`.
-///
-/// Note that the `stderr` file descriptor is never added, as it is not owned by syslog.
-pub fn push_fds(fds: &mut Vec<RawFd>) {
-    let state = lock!();
-    fds.extend(state.file.iter().map(|f| f.as_raw_fd()));
-}
-
-fn get_localtime() -> tm {
-    unsafe {
-        // Safe because tm is just a struct of plain data.
-        let mut tm: tm = mem::zeroed();
-        let mut now: time_t = 0;
-        // Safe because we give time a valid pointer and can never fail.
-        time(&mut now as *mut _);
-        // Safe because we give localtime_r valid pointers and can never fail.
-        localtime_r(&now, &mut tm as *mut _);
-        tm
-    }
-}
 
 /// Records a log message with the given details.
 ///
@@ -390,103 +359,4 @@ macro_rules! info {
 #[macro_export]
 macro_rules! debug {
     ($($args:tt)+) => ($crate::log!($crate::syslog::Priority::Debug, $($args)*))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use libc::{shm_open, shm_unlink, O_CREAT, O_EXCL, O_RDWR};
-
-    use std::ffi::CStr;
-    use std::io::{Read, Seek, SeekFrom};
-    use std::os::unix::io::FromRawFd;
-
-    #[test]
-    fn init_syslog() {
-        init().unwrap();
-    }
-
-    #[test]
-    fn fds() {
-        init().unwrap();
-        let mut fds = Vec::new();
-        push_fds(&mut fds);
-        assert!(fds.len() >= 1);
-        for fd in fds {
-            assert!(fd >= 0);
-        }
-    }
-
-    #[test]
-    fn syslog_log() {
-        init().unwrap();
-        log(
-            Priority::Error,
-            Facility::User,
-            file!(),
-            line!(),
-            format_args!("hello syslog"),
-        );
-    }
-
-    #[test]
-    fn proc_name() {
-        init().unwrap();
-        log(
-            Priority::Error,
-            Facility::User,
-            file!(),
-            line!(),
-            format_args!("before proc name"),
-        );
-        set_proc_name("sys_util-test");
-        log(
-            Priority::Error,
-            Facility::User,
-            file!(),
-            line!(),
-            format_args!("after proc name"),
-        );
-    }
-
-    #[test]
-    fn syslog_file() {
-        init().unwrap();
-        let shm_name = CStr::from_bytes_with_nul(b"/crosvm_shm\0").unwrap();
-        let mut file = unsafe {
-            shm_unlink(shm_name.as_ptr());
-            let fd = shm_open(shm_name.as_ptr(), O_RDWR | O_CREAT | O_EXCL, 0666);
-            assert!(fd >= 0, "error creating shared memory;");
-            File::from_raw_fd(fd)
-        };
-
-        let syslog_file = file.try_clone().expect("error cloning shared memory file");
-        echo_file(Some(syslog_file));
-
-        const TEST_STR: &'static str = "hello shared memory file";
-        log(
-            Priority::Error,
-            Facility::User,
-            file!(),
-            line!(),
-            format_args!("{}", TEST_STR),
-        );
-
-        file.seek(SeekFrom::Start(0))
-            .expect("error seeking shared memory file");
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)
-            .expect("error reading shared memory file");
-        assert!(buf.contains(TEST_STR));
-    }
-
-    #[test]
-    fn macros() {
-        init().unwrap();
-        error!("this is an error {}", 3);
-        warn!("this is a warning {}", "uh oh");
-        info!("this is info {}", true);
-        debug!("this is debug info {:?}", Some("helpful stuff"));
-    }
 }

@@ -13,3 +13,8 @@ libc = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
+
+[dependencies.vm-memory]
+path = "../vm-memory"
+default-features = false
+features = ["backend-mmap"]
