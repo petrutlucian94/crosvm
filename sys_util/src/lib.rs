@@ -54,7 +54,8 @@ use libc::{
 #[inline(always)]
 pub fn pagesize() -> usize {
     // Trivially safe
-    unsafe { sysconf(_SC_PAGESIZE) as usize }
+    // unsafe { sysconf(_SC_PAGESIZE) as usize }
+    4096
 }
 
 /// Uses the system's page size in bytes to round the given value up to the nearest page boundary.
