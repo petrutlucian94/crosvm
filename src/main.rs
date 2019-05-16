@@ -74,7 +74,7 @@ pub struct Config {
     disks: Vec<DiskOption>,
     host_ip: Option<net::Ipv4Addr>,
     netmask: Option<net::Ipv4Addr>,
-    mac_address: Option<net_util::MacAddress>,
+    mac_address: Option<String>,
     tap_fd: Vec<RawFd>,
     shared_dirs: Vec<(PathBuf, String)>,
     split_irqchip: bool,

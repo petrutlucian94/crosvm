@@ -36,7 +36,6 @@ kernel_loader = { path = "kernel_loader" }
 kvm = { path = "kvm" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
-net_util = { path = "net_util" }
 qcow = { path = "qcow" }
 rand_ish = { path = "rand_ish" }
 remain = "*"

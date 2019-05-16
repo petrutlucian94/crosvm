@@ -11,8 +11,6 @@ data_model = { path = "../data_model" }
 enumn = { path = "../enumn" }
 kvm = { path = "../kvm" }
 libc = "*"
-net_sys = { path = "../net_sys" }
-net_util = { path = "../net_util" }
 remain = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }

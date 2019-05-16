@@ -23,7 +23,6 @@ use libc::{self, c_int, gid_t, uid_t};
 use devices::virtio::{self, VirtioDevice};
 use devices::{self, HostBackendDeviceProvider, PciDevice, VirtioPciDevice, XhciController};
 use kvm::*;
-use net_util::{Error as NetError, MacAddress, Tap};
 use qcow::{self, ImageType, QcowFile};
 use rand_ish::SimpleRng;
 use remain::sorted;
