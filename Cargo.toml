@@ -15,7 +15,6 @@ exclude = [
     "data_model",
     "sync",
     "sys_util",
-    "syscall_defines",
 ]
 
 [features]
@@ -53,5 +52,3 @@ data_model = { path = "data_model" }
 poll_token_derive = { path = "sys_util/poll_token_derive" }
 sync = { path = "sync" }
 sys_util = { path = "sys_util" }
-syscall_defines = { path = "syscall_defines" }
-
