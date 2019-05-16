@@ -6,7 +6,8 @@ use arch::android::create_android_fdt;
 use arch::fdt::{begin_node, end_node, finish_fdt, start_fdt, Error};
 use std::fs::File;
 use std::mem;
-use sys_util::{GuestAddress, GuestMemory};
+
+use vm_memory::{GuestAddress, GuestMemory};
 
 use crate::bootparam::setup_data;
 use crate::bootparam::SETUP_DTB;

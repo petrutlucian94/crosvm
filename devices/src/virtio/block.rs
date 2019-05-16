@@ -14,11 +14,13 @@ use std::thread;
 use std::time::Duration;
 use std::u32;
 
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError}
+
 use sync::Mutex;
 use sys_util::Error as SysError;
 use sys_util::Result as SysResult;
 use sys_util::{
-    error, info, warn, EventFd, FileSetLen, FileSync, GuestAddress, GuestMemory, GuestMemoryError,
+    error, info, warn, EventFd, FileSetLen, FileSync,
     PollContext, PollToken, PunchHole, TimerFd, WriteZeroes,
 };
 

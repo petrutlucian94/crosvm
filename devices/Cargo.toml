@@ -17,3 +17,8 @@ sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
 virtio_sys = { path = "../virtio_sys" }
 vm_control = { path = "../vm_control" }
+
+[dependencies.vm-memory]
+path = "../vm-memory"
+default-features = false
+features = ["backend-mmap"]

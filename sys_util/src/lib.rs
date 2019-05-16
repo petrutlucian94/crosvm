@@ -16,9 +16,6 @@ mod clock;
 mod errno;
 mod eventfd;
 mod file_traits;
-mod guest_address;
-pub mod guest_memory;
-mod mmap;
 mod poll;
 mod raw_fd;
 mod seek_hole;
@@ -34,9 +31,6 @@ pub use crate::clock::{Clock, FakeClock};
 use crate::errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
-pub use crate::guest_address::*;
-pub use crate::guest_memory::*;
-pub use crate::mmap::*;
 pub use crate::poll::*;
 pub use crate::raw_fd::*;
 pub use crate::struct_util::*;
@@ -47,8 +41,6 @@ pub use crate::timerfd::*;
 pub use poll_token_derive::*;
 
 pub use crate::file_traits::{FileSetLen, FileSync};
-pub use crate::guest_memory::Error as GuestMemoryError;
-pub use crate::mmap::Error as MmapError;
 pub use crate::write_zeroes::{PunchHole, WriteZeroes};
 
 use std::fs::{remove_file, File};

@@ -4,6 +4,8 @@
 
 //! Emulates virtual and hardware devices.
 
+extern crate vm_memory;
+
 mod bus;
 mod cmos;
 mod i8042;

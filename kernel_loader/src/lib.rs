@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+extern crate vm_memory;
+
 use std::ffi::CStr;
 use std::fmt::{self, Display};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
-use sys_util::{GuestAddress, GuestMemory};
+use vm_memory::{GuestAddress, GuestMemory};
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]

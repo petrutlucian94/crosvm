@@ -4,6 +4,8 @@
 
 //! A safe wrapper around the kernel's KVM interface.
 
+extern crate vm_memory;
+
 mod cap;
 
 use std::cmp::{min, Ordering};
@@ -18,6 +20,8 @@ use std::ptr::copy_nonoverlapping;
 use libc::sigset_t;
 use libc::{open, EINVAL, ENOENT, ENOSPC, O_CLOEXEC, O_RDWR};
 
+use vm_memory::{GuestAddress, GuestMemory, MmapRegion};
+
 use kvm_sys::*;
 
 #[allow(unused_imports)]
@@ -25,7 +29,7 @@ use sys_util::{
     ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
 };
 use sys_util::{
-    pagesize, signal, warn, Error, EventFd, GuestAddress, GuestMemory, MemoryMapping, Result,
+    pagesize, signal, warn, Error, EventFd, Result,
 };
 
 pub use crate::cap::*;
@@ -292,7 +296,7 @@ impl PartialOrd for MemSlot {
 pub struct Vm {
     vm: File,
     guest_mem: GuestMemory,
-    device_memory: HashMap<u32, MemoryMapping>,
+    device_memory: HashMap<u32, MmapRegion>,
     mem_slot_gaps: BinaryHeap<MemSlot>,
 }
 
@@ -342,7 +346,7 @@ impl Vm {
         unsafe { ioctl_with_val(self, KVM_CHECK_EXTENSION(), c as c_ulong) == 1 }
     }
 
-    /// Inserts the given `MemoryMapping` into the VM's address space at `guest_addr`.
+    /// Inserts the given `MmapRegion` into the VM's address space at `guest_addr`.
     ///
     /// The slot that was assigned the device memory mapping is returned on success. The slot can be
     /// given to `Vm::remove_device_memory` to remove the memory from the VM's address space and
@@ -359,7 +363,7 @@ impl Vm {
     pub fn add_device_memory(
         &mut self,
         guest_addr: GuestAddress,
-        mem: MemoryMapping,
+        mem: MmapRegion,
         read_only: bool,
         log_dirty_pages: bool,
     ) -> Result<u32> {
@@ -377,7 +381,7 @@ impl Vm {
         };
 
         // Safe because we check that the given guest address is valid and has no overlaps. We also
-        // know that the pointer and size are correct because the MemoryMapping interface ensures
+        // know that the pointer and size are correct because the MmapRegion interface ensures
         // this. We take ownership of the memory mapping so that it won't be unmapped until the slot
         // is removed.
         unsafe {
@@ -399,7 +403,7 @@ impl Vm {
     /// Removes device memory that was previously added at the given slot.
     ///
     /// Ownership of the host memory mapping associated with the given slot is returned on success.
-    pub fn remove_device_memory(&mut self, slot: u32) -> Result<MemoryMapping> {
+    pub fn remove_device_memory(&mut self, slot: u32) -> Result<MmapRegion> {
         match self.device_memory.entry(slot) {
             Entry::Occupied(entry) => {
                 // Safe because the slot is checked against the list of device memory slots.
@@ -1018,7 +1022,7 @@ pub enum VcpuExit {
 /// A wrapper around creating and using a VCPU.
 pub struct Vcpu {
     vcpu: File,
-    run_mmap: MemoryMapping,
+    run_mmap: MmapRegion,
     guest_mem: GuestMemory,
 }
 
@@ -1040,7 +1044,7 @@ impl Vcpu {
         let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
 
         let run_mmap =
-            MemoryMapping::from_fd(&vcpu, run_mmap_size).map_err(|_| Error::new(ENOSPC))?;
+            MmapRegion::from_fd(&vcpu, run_mmap_size).map_err(|_| Error::new(ENOSPC))?;
 
         let guest_mem = vm.guest_mem.clone();
 
@@ -1718,7 +1722,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         vm.add_device_memory(GuestAddress(0x1000), mem, false, false)
             .unwrap();
     }
@@ -1729,7 +1733,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         vm.add_device_memory(GuestAddress(0x1000), mem, true, false)
             .unwrap();
     }
@@ -1740,7 +1744,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         let mem_ptr = mem.as_ptr();
         let slot = vm
             .add_device_memory(GuestAddress(0x1000), mem, false, false)
@@ -1764,7 +1768,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x2000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         assert!(vm
             .add_device_memory(GuestAddress(0x2000), mem, false, false)
             .is_err());
