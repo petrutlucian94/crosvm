@@ -11,7 +11,6 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 use std::u32;
 
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError}
@@ -462,13 +461,8 @@ impl Request {
         read_only: bool,
         disk: &mut T,
         disk_size: u64,
-        flush_timer: &mut TimerFd,
-        flush_timer_armed: &mut bool,
         mem: &GuestMemory,
     ) -> result::Result<u32, ExecuteError> {
-        // Delay after a write when the file is auto-flushed.
-        let flush_delay = Duration::from_secs(60);
-
         if read_only && self.request_type != RequestType::In {
             return Err(ExecuteError::ReadOnly {
                 request_type: self.request_type,
@@ -531,12 +525,6 @@ impl Request {
                         sector: self.sector,
                         guestmemerr: e,
                     })?;
-                if !*flush_timer_armed {
-                    flush_timer
-                        .reset(flush_delay, None)
-                        .map_err(ExecuteError::TimerFd)?;
-                    *flush_timer_armed = true;
-                }
             }
             RequestType::Discard | RequestType::WriteZeroes => {
                 if let Some(seg) = self.discard_write_zeroes_seg {
@@ -587,8 +575,6 @@ impl Request {
             }
             RequestType::Flush => {
                 disk.fsync().map_err(ExecuteError::Flush)?;
-                flush_timer.clear().map_err(ExecuteError::TimerFd)?;
-                *flush_timer_armed = false;
             }
             RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),
         };
@@ -611,8 +597,6 @@ impl<T: DiskFile> Worker<T> {
     fn process_queue(
         &mut self,
         queue_index: usize,
-        flush_timer: &mut TimerFd,
-        flush_timer_armed: &mut bool,
     ) -> bool {
         let queue = &mut self.queues[queue_index];
 
@@ -628,8 +612,6 @@ impl<T: DiskFile> Worker<T> {
                         self.read_only,
                         &mut self.disk_image,
                         *disk_size,
-                        flush_timer,
-                        flush_timer_armed,
                         &self.mem,
                     ) {
                         Ok(l) => {
@@ -682,23 +664,12 @@ impl<T: DiskFile> Worker<T> {
     ) {
         #[derive(PollToken)]
         enum Token {
-            FlushTimer,
             QueueAvailable,
             InterruptResample,
             Kill,
         }
 
-        let mut flush_timer = match TimerFd::new() {
-            Ok(t) => t,
-            Err(e) => {
-                error!("Failed to create the flush timer: {}", e);
-                return;
-            }
-        };
-        let mut flush_timer_armed = false;
-
         let poll_ctx: PollContext<Token> = match PollContext::new()
-            .and_then(|pc| pc.add(&flush_timer, Token::FlushTimer).and(Ok(pc)))
             .and_then(|pc| pc.add(&queue_evt, Token::QueueAvailable).and(Ok(pc)))
             .and_then(|pc| {
                 pc.add(&self.interrupt_resample_evt, Token::InterruptResample)
@@ -726,23 +697,13 @@ impl<T: DiskFile> Worker<T> {
             let mut needs_config_interrupt = false;
             for event in events.iter_readable() {
                 match event.token() {
-                    Token::FlushTimer => {
-                        if let Err(e) = self.disk_image.flush() {
-                            error!("Failed to flush the disk: {}", e);
-                            break 'poll;
-                        }
-                        if let Err(e) = flush_timer.wait() {
-                            error!("Failed to clear flush timer: {}", e);
-                            break 'poll;
-                        }
-                    }
                     Token::QueueAvailable => {
                         if let Err(e) = queue_evt.read() {
                             error!("failed reading queue EventFd: {}", e);
                             break 'poll;
                         }
                         needs_interrupt |=
-                            self.process_queue(0, &mut flush_timer, &mut flush_timer_armed);
+                            self.process_queue(0);
                     }
                     Token::InterruptResample => {
                         let _ = self.interrupt_resample_evt.read();
@@ -1004,17 +965,12 @@ mod tests {
             discard_write_zeroes_seg: None,
         };
 
-        let mut flush_timer = TimerFd::new().expect("failed to create flush_timer");
-        let mut flush_timer_armed = false;
-
         assert_eq!(
             512,
             req.execute(
                 false,
                 &mut f,
                 disk_size,
-                &mut flush_timer,
-                &mut flush_timer_armed,
                 &mem
             )
             .expect("execute failed"),
@@ -1047,15 +1003,10 @@ mod tests {
             discard_write_zeroes_seg: None,
         };
 
-        let mut flush_timer = TimerFd::new().expect("failed to create flush_timer");
-        let mut flush_timer_armed = false;
-
         req.execute(
             false,
             &mut f,
             disk_size,
-            &mut flush_timer,
-            &mut flush_timer_armed,
             &mem,
         )
         .expect_err("execute was supposed to fail");
