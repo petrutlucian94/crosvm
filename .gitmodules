@@ -2,3 +2,9 @@
 	path = vm-memory
 	url = https://github.com/rust-vmm/vm-memory
 	branch = master
+[submodule "libwhp"]
+	path = libwhp
+	url = https://github.com/jennymankin/libwhp.git
+[submodule "vmm-vcpu"]
+	path = vmm-vcpu
+	url = https://github.com/jennymankin/vmm-vcpu.git
