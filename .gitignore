@@ -3,4 +3,5 @@ target/
 **/*.sw[po]
 **/*.orig
 **/Cargo.lock
-!/Cargo.lock
+# !/Cargo.lock
+Cargo.lock
