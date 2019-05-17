@@ -16,7 +16,7 @@ extern crate kvm_bindings;
 use std::os::raw::*;
 //use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-//use vm_memory::{GuestAddress, GuestMemory, MmapRegion};
+//use vm_memory::{GuestAddress, GuestMemoryMmap, MmapRegion};
 use kvm_bindings::{
     kvm_debugregs as DebugRegisters,
     kvm_xcrs as ExtendedControlRegisters,
@@ -29,7 +29,7 @@ use vmm_vcpu::vcpu::{Result};
 pub trait VcpuExtra {
     /*
     fn new(id: c_ulong, kvm: &Kvm, vm: &Vm) -> Result<Vcpu>;
-    fn get_memory(&self) -> &GuestMemory;
+    fn get_memory(&self) -> &GuestMemoryMmap;
     */
     fn set_data(&self, data: &[u8]) -> Result<()>;
     fn get_debugregs(&self) -> Result<DebugRegisters>;
@@ -56,9 +56,9 @@ impl VcpuExtra for VirtualProcessor {
 
     /// Gets a reference to the guest memory owned by this VM of this VCPU.
     ///
-    /// Note that `GuestMemory` does not include any device memory that may have been added after
+    /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after
     /// this VM was constructed.
-    fn get_memory(&self) -> &GuestMemory {
+    fn get_memory(&self) -> &GuestMemoryMmap {
         unimplemented!();
         &self.guest_mem
     }
@@ -431,14 +431,14 @@ impl PartialOrd for MemSlot {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     vm: File,
-    guest_mem: GuestMemory,
+    guest_mem: GuestMemoryMmap,
     device_memory: HashMap<u32, MmapRegion>,
     mem_slot_gaps: BinaryHeap<MemSlot>,
 }
 
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm, guest_mem: GuestMemory) -> Result<Vm> {
+    pub fn new(kvm: &Kvm, guest_mem: GuestMemoryMmap) -> Result<Vm> {
         // Safe because we know kvm is a real kvm fd as this module is the only one that can make
         // Kvm objects.
         let ret = unsafe { ioctl(kvm, KVM_CREATE_VM()) };
@@ -587,9 +587,9 @@ impl Vm {
 
     /// Gets a reference to the guest memory owned by this VM.
     ///
-    /// Note that `GuestMemory` does not include any device memory that may have been added after
+    /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after
     /// this VM was constructed.
-    pub fn get_memory(&self) -> &GuestMemory {
+    pub fn get_memory(&self) -> &GuestMemoryMmap {
         &self.guest_mem
     }
 
@@ -1159,7 +1159,7 @@ pub enum VcpuExit {
 pub struct Vcpu {
     vcpu: File,
     run_mmap: MmapRegion,
-    guest_mem: GuestMemory,
+    guest_mem: GuestMemoryMmap,
 }
 
 
@@ -1191,7 +1191,7 @@ mod tests {
     #[test]
     fn create_vm() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         Vm::new(&kvm, gm).unwrap();
     }
 
@@ -1206,7 +1206,7 @@ mod tests {
     #[test]
     fn check_vm_extension() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         assert!(vm.check_extension(Cap::UserMemory));
         // I assume nobody is testing this on s390
@@ -1238,7 +1238,7 @@ mod tests {
     #[test]
     fn add_memory() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
         let mem = MmapRegion::new(mem_size).unwrap();
@@ -1249,7 +1249,7 @@ mod tests {
     #[test]
     fn add_memory_ro() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
         let mem = MmapRegion::new(mem_size).unwrap();
@@ -1260,7 +1260,7 @@ mod tests {
     #[test]
     fn remove_memory() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
         let mem = MmapRegion::new(mem_size).unwrap();
@@ -1276,7 +1276,7 @@ mod tests {
     #[test]
     fn remove_invalid_memory() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         assert!(vm.remove_device_memory(0).is_err());
     }
@@ -1284,7 +1284,7 @@ mod tests {
     #[test]
     fn overlap_memory() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x2000;
         let mem = MmapRegion::new(mem_size).unwrap();
@@ -1296,7 +1296,7 @@ mod tests {
     #[test]
     fn get_memory() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let obj_addr = GuestAddress(0xf0);
         vm.get_memory().write_obj_at_addr(67u8, obj_addr).unwrap();
@@ -1308,7 +1308,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn clock_handling() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let mut clock_data = vm.get_clock().unwrap();
         clock_data.clock += 1000;
@@ -1319,7 +1319,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn pic_handling() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         vm.create_irq_chip().unwrap();
         let pic_state = vm.get_pic_state(PicId::Secondary).unwrap();
@@ -1330,7 +1330,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn ioapic_handling() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         vm.create_irq_chip().unwrap();
         let ioapic_state = vm.get_ioapic_state().unwrap();
@@ -1341,7 +1341,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn pit_handling() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         vm.create_irq_chip().unwrap();
         vm.create_pit().unwrap();
@@ -1352,7 +1352,7 @@ mod tests {
     #[test]
     fn register_ioevent() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let evtfd = EventFd::new().unwrap();
         vm.register_ioevent(&evtfd, IoeventAddress::Pio(0xf4), Datamatch::AnyLength)
@@ -1388,7 +1388,7 @@ mod tests {
     #[test]
     fn unregister_ioevent() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let evtfd = EventFd::new().unwrap();
         vm.register_ioevent(&evtfd, IoeventAddress::Pio(0xf4), Datamatch::AnyLength)
@@ -1416,7 +1416,7 @@ mod tests {
     #[test]
     fn register_irqfd() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let evtfd1 = EventFd::new().unwrap();
         let evtfd2 = EventFd::new().unwrap();
@@ -1430,7 +1430,7 @@ mod tests {
     #[test]
     fn unregister_irqfd() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let evtfd1 = EventFd::new().unwrap();
         let evtfd2 = EventFd::new().unwrap();
@@ -1446,7 +1446,7 @@ mod tests {
     #[test]
     fn irqfd_resample() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let evtfd1 = EventFd::new().unwrap();
         let evtfd2 = EventFd::new().unwrap();
@@ -1461,7 +1461,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn set_gsi_routing() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         vm.create_irq_chip().unwrap();
         vm.set_gsi_routing(&[]).unwrap();
@@ -1503,7 +1503,7 @@ mod tests {
     #[test]
     fn create_vcpu() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         Vcpu::new(0, &kvm, &vm).unwrap();
     }
@@ -1512,7 +1512,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn debugregs() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let vcpu = Vcpu::new(0, &kvm, &vm).unwrap();
         let mut dregs = vcpu.get_debugregs().unwrap();
@@ -1530,7 +1530,7 @@ mod tests {
             return;
         }
 
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let vcpu = Vcpu::new(0, &kvm, &vm).unwrap();
         let mut xcrs = vcpu.get_xcrs().unwrap();
@@ -1544,7 +1544,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn get_msrs() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let vcpu = Vcpu::new(0, &kvm, &vm).unwrap();
         let mut msrs = vec![
@@ -1567,7 +1567,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn mp_state() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         vm.create_irq_chip().unwrap();
         let vcpu = Vcpu::new(0, &kvm, &vm).unwrap();
@@ -1578,7 +1578,7 @@ mod tests {
     #[test]
     fn set_signal_mask() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let vcpu = Vcpu::new(0, &kvm, &vm).unwrap();
         vcpu.set_signal_mask(&[sys_util::SIGRTMIN() + 0]).unwrap();
@@ -1597,7 +1597,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn set_identity_map_addr() {
         let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         vm.set_identity_map_addr(GuestAddress(0x20000)).unwrap();
     }

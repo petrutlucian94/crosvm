@@ -13,7 +13,7 @@ use self::constants::*;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use data_model::{DataInit, Le16, Le32};
-use sys_util::{error, warn, EventFd, GuestMemory, PollContext, PollToken};
+use sys_util::{error, warn, EventFd, GuestMemoryMmap, PollContext, PollToken};
 
 use self::event_source::{input_event, EvdevEventSource, EventSource, SocketEventSource};
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_INPUT};
@@ -386,7 +386,7 @@ struct Worker<T: EventSource> {
     event_source: T,
     event_queue: Queue,
     status_queue: Queue,
-    guest_memory: GuestMemory,
+    guest_memory: GuestMemoryMmap,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     interrupt_resample_evt: EventFd,
@@ -420,7 +420,7 @@ impl<T: EventSource> Worker<T> {
                     let avail_events_size =
                         self.event_source.available_events_count() * virtio_input_event::EVENT_SIZE;
                     let len = min(avail_desc.len as usize, avail_events_size);
-                    if let Err(e) = self.guest_memory.read_to_memory(
+                    if let Err(e) = self.guest_memory.read_exact_from(
                         avail_desc.addr,
                         &mut self.event_source,
                         len,
@@ -621,7 +621,7 @@ where
 
     fn activate(
         &mut self,
-        mem: GuestMemory,
+        mem: GuestMemoryMmap,
         interrupt_evt: EventFd,
         interrupt_resample_evt: EventFd,
         status: Arc<AtomicUsize>,

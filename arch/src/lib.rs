@@ -15,7 +15,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 
-use vm_memory::GuestAddress, GuestMemory, GuestMemoryError;
+use vm_memory::GuestAddress, GuestMemoryMmap, GuestMemoryError;
 
 use devices::virtio::VirtioDevice;
 use devices::{
@@ -78,7 +78,7 @@ pub trait LinuxArch {
         create_devices: F,
     ) -> Result<RunnableLinuxVm, Self::Error>
     where
-        F: FnOnce(&GuestMemory, &EventFd) -> Result<Vec<(Box<dyn PciDevice>)>, E>,
+        F: FnOnce(&GuestMemoryMmap, &EventFd) -> Result<Vec<(Box<dyn PciDevice>)>, E>,
         E: StdError + 'static;
 }
 
@@ -237,7 +237,7 @@ impl Display for LoadImageError {
 ///
 /// The size in bytes of the loaded image is returned.
 pub fn load_image<F>(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     image: &mut F,
     guest_addr: GuestAddress,
     max_size: u64,
@@ -259,7 +259,7 @@ where
         .map_err(LoadImageError::Seek)?;
 
     guest_mem
-        .read_to_memory(guest_addr, image, size)
+        .read_exact_from(guest_addr, image, size)
         .map_err(LoadImageError::ReadToMemory)?;
 
     Ok(size)

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use data_model::{DataInit, Le32};
 use kvm::Datamatch;
 use resources::{Alloc, SystemAllocator};
-use sys_util::{EventFd, GuestMemory, Result};
+use sys_util::{EventFd, GuestMemoryMmap, Result};
 
 use super::*;
 use crate::pci::{
@@ -158,7 +158,7 @@ pub struct VirtioPciDevice {
     interrupt_resample_evt: Option<EventFd>,
     queues: Vec<Queue>,
     queue_evts: Vec<EventFd>,
-    mem: Option<GuestMemory>,
+    mem: Option<GuestMemoryMmap>,
     settings_bar: u8,
 
     common_config: VirtioPciCommonConfig,
@@ -166,7 +166,7 @@ pub struct VirtioPciDevice {
 
 impl VirtioPciDevice {
     /// Constructs a new PCI transport for the given virtio device.
-    pub fn new(mem: GuestMemory, device: Box<dyn VirtioDevice>) -> Result<Self> {
+    pub fn new(mem: GuestMemoryMmap, device: Box<dyn VirtioDevice>) -> Result<Self> {
         let mut queue_evts = Vec::new();
         for _ in device.queue_max_sizes() {
             queue_evts.push(EventFd::new()?)

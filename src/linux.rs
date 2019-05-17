@@ -29,7 +29,7 @@ use sync::{Condvar, Mutex};
 use sys_util::{
     self, error, flock,
     info, set_cpu_affinity,
-    warn, EventFd, FlockOperation, GuestMemory, Killable, PollContext, PollToken,
+    warn, EventFd, FlockOperation, GuestMemoryMmap, Killable, PollContext, PollToken,
     Terminal, SIGRTMIN,
 };
 use vm_control::{VmRunMode};
@@ -188,7 +188,7 @@ fn create_block_device(
 
 fn create_devices(
     cfg: Config,
-    mem: &GuestMemory,
+    mem: &GuestMemoryMmap,
     exit_evt: &EventFd,
 ) -> DeviceResult<Vec<(Box<dyn PciDevice>)>> {
     let stubs = create_virtio_devices(

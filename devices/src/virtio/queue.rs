@@ -6,7 +6,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{GuestAddress, GuestMemory}
+use vm_memory::{GuestAddress, GuestMemoryMmap}
 
 use sys_util::{error};
 
@@ -49,7 +49,7 @@ impl<'a> Iterator for DescIter<'a> {
 /// A virtio descriptor chain.
 #[derive(Clone)]
 pub struct DescriptorChain<'a> {
-    mem: &'a GuestMemory,
+    mem: &'a GuestMemoryMmap,
     desc_table: GuestAddress,
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
@@ -73,7 +73,7 @@ pub struct DescriptorChain<'a> {
 
 impl<'a> DescriptorChain<'a> {
     fn checked_new(
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
         desc_table: GuestAddress,
         queue_size: u16,
         index: u16,
@@ -174,7 +174,7 @@ impl<'a> DescriptorChain<'a> {
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
 pub struct AvailIter<'a, 'b> {
-    mem: &'a GuestMemory,
+    mem: &'a GuestMemoryMmap,
     desc_table: GuestAddress,
     avail_ring: GuestAddress,
     next_index: Wrapping<u16>,
@@ -256,7 +256,7 @@ impl Queue {
         min(self.size, self.max_size)
     }
 
-    pub fn is_valid(&self, mem: &GuestMemory) -> bool {
+    pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
         let queue_size = self.actual_size() as usize;
         let desc_table = self.desc_table;
         let desc_table_size = 16 * queue_size;
@@ -307,7 +307,7 @@ impl Queue {
     }
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter<'a, 'b>(&'b mut self, mem: &'a GuestMemory) -> AvailIter<'a, 'b> {
+    pub fn iter<'a, 'b>(&'b mut self, mem: &'a GuestMemoryMmap) -> AvailIter<'a, 'b> {
         if !self.is_valid(mem) {
             return AvailIter {
                 mem,
@@ -351,7 +351,7 @@ impl Queue {
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, mem: &GuestMemory, desc_index: u16, len: u32) {
+    pub fn add_used(&mut self, mem: &GuestMemoryMmap, desc_index: u16, len: u32) {
         if desc_index >= self.actual_size() {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 use std::u32;
 
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError}
+use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryError}
 
 use sync::Mutex;
 use sys_util::Error as SysError;
@@ -175,7 +175,7 @@ impl Display for ParseError {
 }
 
 fn request_type(
-    mem: &GuestMemory,
+    mem: &GuestMemoryMmap,
     desc_addr: GuestAddress,
 ) -> result::Result<RequestType, ParseError> {
     let type_ = mem
@@ -191,7 +191,7 @@ fn request_type(
     }
 }
 
-fn sector(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<u64, ParseError> {
+fn sector(mem: &GuestMemoryMmap, desc_addr: GuestAddress) -> result::Result<u64, ParseError> {
     const SECTOR_OFFSET: u64 = 8;
     let addr = match mem.checked_offset(desc_addr, SECTOR_OFFSET) {
         Some(v) => v,
@@ -203,7 +203,7 @@ fn sector(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<u64, Par
 }
 
 fn discard_write_zeroes_segment(
-    mem: &GuestMemory,
+    mem: &GuestMemoryMmap,
     seg_addr: GuestAddress,
 ) -> result::Result<virtio_blk_discard_write_zeroes, ParseError> {
     mem.read_obj_from_addr(seg_addr)
@@ -327,7 +327,7 @@ struct Request {
 impl Request {
     fn parse(
         avail_desc: &DescriptorChain,
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
     ) -> result::Result<Request, ParseError> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
@@ -346,7 +346,7 @@ impl Request {
 
     fn parse_flush(
         avail_desc: &DescriptorChain,
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
     ) -> result::Result<Request, ParseError> {
         let sector = sector(&mem, avail_desc.addr)?;
         let status_desc = avail_desc
@@ -374,7 +374,7 @@ impl Request {
 
     fn parse_discard_write_zeroes(
         avail_desc: &DescriptorChain,
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
         req_type: RequestType,
     ) -> result::Result<Request, ParseError> {
         let seg_desc = avail_desc
@@ -418,7 +418,7 @@ impl Request {
 
     fn parse_read_write(
         avail_desc: &DescriptorChain,
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
         req_type: RequestType,
     ) -> result::Result<Request, ParseError> {
         let sector = sector(&mem, avail_desc.addr)?;
@@ -461,7 +461,7 @@ impl Request {
         read_only: bool,
         disk: &mut T,
         disk_size: u64,
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
     ) -> result::Result<u32, ExecuteError> {
         if read_only && self.request_type != RequestType::In {
             return Err(ExecuteError::ReadOnly {
@@ -584,7 +584,7 @@ impl Request {
 
 struct Worker<T: DiskFile> {
     queues: Vec<Queue>,
-    mem: GuestMemory,
+    mem: GuestMemoryMmap,
     disk_image: T,
     disk_size: Arc<Mutex<u64>>,
     read_only: bool,
@@ -839,7 +839,7 @@ impl<T: 'static + AsRawFd + DiskFile + Send> VirtioDevice for Block<T> {
 
     fn activate(
         &mut self,
-        mem: GuestMemory,
+        mem: GuestMemoryMmap,
         interrupt_evt: EventFd,
         interrupt_resample_evt: EventFd,
         status: Arc<AtomicUsize>,
@@ -953,7 +953,7 @@ mod tests {
         let disk_size = 0x1000;
         f.set_len(disk_size).unwrap();
 
-        let mem = GuestMemory::new(&[(GuestAddress(0u64), 4 * 1024 * 1024)])
+        let mem = GuestMemoryMmap::new(&[(GuestAddress(0u64), 4 * 1024 * 1024)])
             .expect("Creating guest memory failed.");
 
         let req = Request {
@@ -991,7 +991,7 @@ mod tests {
         let disk_size = 0x1000;
         f.set_len(disk_size).unwrap();
 
-        let mem = GuestMemory::new(&[(GuestAddress(0u64), 4 * 1024 * 1024)])
+        let mem = GuestMemoryMmap::new(&[(GuestAddress(0u64), 4 * 1024 * 1024)])
             .expect("Creating guest memory failed.");
 
         let req = Request {

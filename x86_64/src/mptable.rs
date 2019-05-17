@@ -11,7 +11,7 @@ use std::slice;
 use libc::c_char;
 
 use devices::PciInterruptPin;
-use vm_memory::{GuestAddress, GuestMemory};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use crate::mpspec::*;
 
@@ -113,7 +113,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 
 /// Performs setup of the MP table for the given `num_cpus`.
 pub fn setup_mptable(
-    mem: &GuestMemory,
+    mem: &GuestMemoryMmap,
     num_cpus: u8,
     pci_irqs: Vec<(u32, PciInterruptPin)>,
 ) -> Result<()> {
@@ -135,7 +135,7 @@ pub fn setup_mptable(
         return Err(Error::AddressOverflow);
     }
 
-    mem.read_to_memory(base_mp, &mut io::repeat(0), mp_size)
+    mem.read_exact_from(base_mp, &mut io::repeat(0), mp_size)
         .map_err(|_| Error::Clear)?;
 
     {
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem = GuestMemory::new(&[(
+        let mem = GuestMemoryMmap::new(&[(
             GuestAddress(MPTABLE_START),
             compute_page_aligned_mp_size(num_cpus),
         )])
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 255;
-        let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), 0x1000)]).unwrap();
+        let mem = GuestMemoryMmap::new(&[(GuestAddress(MPTABLE_START), 0x1000)]).unwrap();
 
         assert!(setup_mptable(&mem, num_cpus, Vec::new()).is_err());
     }
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem = GuestMemory::new(&[(
+        let mem = GuestMemoryMmap::new(&[(
             GuestAddress(MPTABLE_START),
             compute_page_aligned_mp_size(num_cpus),
         )])
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem = GuestMemory::new(&[(
+        let mem = GuestMemoryMmap::new(&[(
             GuestAddress(MPTABLE_START),
             compute_page_aligned_mp_size(num_cpus),
         )])
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn cpu_entry_count() {
         const MAX_CPUS: u8 = 0xff;
-        let mem = GuestMemory::new(&[(
+        let mem = GuestMemoryMmap::new(&[(
             GuestAddress(MPTABLE_START),
             compute_page_aligned_mp_size(MAX_CPUS),
         )])

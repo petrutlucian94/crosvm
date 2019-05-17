@@ -7,7 +7,7 @@ use std::mem;
 use std::result;
 use std::slice;
 
-use vm_memory::{GuestAddress, GuestMemory};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use data_model::DataInit;
 
@@ -135,7 +135,7 @@ impl Clone for SmbiosSysInfo {
 unsafe impl data_model::DataInit for SmbiosSysInfo {}
 
 fn write_and_incr<T: DataInit>(
-    mem: &GuestMemory,
+    mem: &GuestMemoryMmap,
     val: T,
     mut curptr: GuestAddress,
 ) -> Result<GuestAddress> {
@@ -147,7 +147,7 @@ fn write_and_incr<T: DataInit>(
     Ok(curptr)
 }
 
-fn write_string(mem: &GuestMemory, val: &str, mut curptr: GuestAddress) -> Result<GuestAddress> {
+fn write_string(mem: &GuestMemoryMmap, val: &str, mut curptr: GuestAddress) -> Result<GuestAddress> {
     for c in val.as_bytes().iter() {
         curptr = write_and_incr(mem, c.clone(), curptr)?;
     }
@@ -155,7 +155,7 @@ fn write_string(mem: &GuestMemory, val: &str, mut curptr: GuestAddress) -> Resul
     Ok(curptr)
 }
 
-pub fn setup_smbios(mem: &GuestMemory) -> Result<()> {
+pub fn setup_smbios(mem: &GuestMemoryMmap) -> Result<()> {
     let physptr = GuestAddress(SMBIOS_START)
         .checked_add(mem::size_of::<Smbios30Entrypoint>() as u64)
         .ok_or(Error::NotEnoughMemory)?;
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn entrypoint_checksum() {
-        let mem = GuestMemory::new(&[(GuestAddress(SMBIOS_START), 4096)]).unwrap();
+        let mem = GuestMemoryMmap::new(&[(GuestAddress(SMBIOS_START), 4096)]).unwrap();
 
         setup_smbios(&mem).unwrap();
 

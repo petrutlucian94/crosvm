@@ -6,7 +6,7 @@ use std::os::unix::io::RawFd;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use sys_util::{EventFd, GuestMemory};
+use sys_util::{EventFd, GuestMemoryMmap};
 
 use super::*;
 use crate::pci::{PciBarConfiguration, PciCapability};
@@ -62,7 +62,7 @@ pub trait VirtioDevice: Send {
     /// Activates this device for real usage.
     fn activate(
         &mut self,
-        mem: GuestMemory,
+        mem: GuestMemoryMmap,
         interrupt_evt: EventFd,
         interrupt_resample_evt: EventFd,
         status: Arc<AtomicUsize>,

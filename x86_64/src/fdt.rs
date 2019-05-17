@@ -7,7 +7,7 @@ use arch::fdt::{begin_node, end_node, finish_fdt, start_fdt, Error};
 use std::fs::File;
 use std::mem;
 
-use vm_memory::{GuestAddress, GuestMemory};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use crate::bootparam::setup_data;
 use crate::bootparam::SETUP_DTB;
@@ -24,7 +24,7 @@ use crate::X86_64_FDT_MAX_SIZE;
 /// * `android_fstab` - the File object for the android fstab
 pub fn create_fdt(
     fdt_max_size: usize,
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     fdt_load_offset: u64,
     android_fstab: File,
 ) -> Result<usize, Error> {

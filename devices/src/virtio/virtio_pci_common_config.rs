@@ -229,7 +229,7 @@ mod tests {
     use std::os::unix::io::RawFd;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
-    use sys_util::{EventFd, GuestMemory};
+    use sys_util::{EventFd, GuestMemoryMmap};
 
     struct DummyDevice(u32);
     const QUEUE_SIZE: u16 = 256;
@@ -247,7 +247,7 @@ mod tests {
         }
         fn activate(
             &mut self,
-            _mem: GuestMemory,
+            _mem: GuestMemoryMmap,
             _interrupt_evt: EventFd,
             _interrupt_resample_evt: EventFd,
             _status: Arc<AtomicUsize>,

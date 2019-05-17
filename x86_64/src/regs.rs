@@ -6,7 +6,7 @@ use std::alloc::Layout;
 use std::fmt::{self, Display};
 use std::{mem, result};
 
-use vm_memory::{GuestAddress, GuestMemory};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use assertions::const_assert;
 use kvm;
@@ -214,7 +214,7 @@ const BOOT_IDT_OFFSET: u64 = 0x520;
 
 const BOOT_GDT_MAX: usize = 4;
 
-fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
+fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
@@ -227,14 +227,14 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
     Ok(())
 }
 
-fn write_idt_value(val: u64, guest_mem: &GuestMemory) -> Result<()> {
+fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<()> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem
         .write_obj_at_addr(val, boot_idt_addr)
         .map_err(|_| Error::WriteIDTFailure)
 }
 
-fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
+fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
     let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
         gdt::gdt_entry(0, 0, 0),            // NULL
         gdt::gdt_entry(0xa09b, 0, 0xfffff), // CODE
@@ -270,7 +270,7 @@ fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Res
     Ok(())
 }
 
-fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
+fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
     // Puts PML4 right after zero page but aligned to 4k.
     let boot_pml4_addr = GuestAddress(0x9000);
     let boot_pdpte_addr = GuestAddress(0xa000);
@@ -303,7 +303,7 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
 ///
 /// * `mem` - The memory that will be passed to the guest.
 /// * `vcpu_fd` - The FD returned from the KVM_CREATE_VCPU ioctl.
-pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::Vcpu) -> Result<()> {
+pub fn setup_sregs(mem: &GuestMemoryMmap, vcpu: &kvm::Vcpu) -> Result<()> {
     let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::GetSRegsIoctlFailed)?;
 
     configure_segments_and_sregs(mem, &mut sregs)?;
@@ -317,13 +317,13 @@ pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::Vcpu) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sys_util::{GuestAddress, GuestMemory};
+    use sys_util::{GuestAddress, GuestMemoryMmap};
 
-    fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap()
+    fn create_guest_mem() -> GuestMemoryMmap {
+        GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x10000)]).unwrap()
     }
 
-    fn read_u64(gm: &GuestMemory, offset: u64) -> u64 {
+    fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {
         let read_addr = GuestAddress(offset);
         gm.read_obj_from_addr(read_addr).unwrap()
     }

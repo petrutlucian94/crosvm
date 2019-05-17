@@ -63,7 +63,7 @@ use std::io::{self, stdout};
 use std::mem;
 use std::sync::Arc;
 
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryError};
 
 use crate::bootparam::boot_params;
 use crate::bootparam::E820_RAM;
@@ -175,7 +175,7 @@ const CMDLINE_MAX_SIZE: u64 = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 const X86_64_IRQ_BASE: u32 = 5;
 
 fn configure_system(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     _mem_size: u64,
     kernel_addr: GuestAddress,
     cmdline_addr: GuestAddress,
@@ -267,7 +267,7 @@ fn add_e820_entry(params: &mut boot_params, addr: u64, size: u64, mem_type: u32)
 }
 
 /// Returns a Vec of the valid memory addresses.
-/// These should be used to configure the GuestMemory structure for the platfrom.
+/// These should be used to configure the GuestMemoryMmap structure for the platfrom.
 /// For x86_64 all addresses are valid from the start of the kenel except a
 /// carve out at the end of 32bit address space.
 fn arch_memory_regions(size: u64) -> Vec<(GuestAddress, u64)> {
@@ -301,7 +301,7 @@ impl arch::LinuxArch for X8664arch {
     ) -> Result<RunnableLinuxVm>
     where
         F: FnOnce(
-            &GuestMemory,
+            &GuestMemoryMmap,
             &EventFd,
         ) -> std::result::Result<Vec<Box<dyn PciDevice>>, E>,
         E: StdError + 'static,
@@ -392,7 +392,7 @@ impl X8664arch {
     ///
     /// * `mem` - The memory to be used by the guest.
     /// * `kernel_image` - the File object for the specified kernel.
-    fn load_kernel(mem: &GuestMemory, mut kernel_image: &mut File) -> Result<u64> {
+    fn load_kernel(mem: &GuestMemoryMmap, mut kernel_image: &mut File) -> Result<u64> {
         kernel_loader::load_kernel(mem, GuestAddress(KERNEL_START_OFFSET), &mut kernel_image)
             .map_err(Error::LoadKernel)
     }
@@ -407,7 +407,7 @@ impl X8664arch {
     /// * `cmdline` - the kernel commandline
     /// * `initrd_file` - an initial ramdisk image
     fn setup_system_memory(
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
         mem_size: u64,
         vcpu_count: u32,
         cmdline: &CStr,
@@ -476,7 +476,7 @@ impl X8664arch {
     /// * `kvm` - The opened /dev/kvm object.
     /// * `split_irqchip` - Whether to use a split IRQ chip.
     /// * `mem` - The memory to be used by the guest.
-    fn create_vm(kvm: &Kvm, split_irqchip: bool, mem: GuestMemory) -> Result<Vm> {
+    fn create_vm(kvm: &Kvm, split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
         let vm = Vm::new(&kvm, mem).map_err(Error::CreateVm)?;
         let tss_addr = GuestAddress(0xfffbd000);
         vm.set_tss_addr(tss_addr).map_err(Error::SetTssAddr)?;
@@ -487,12 +487,12 @@ impl X8664arch {
         Ok(vm)
     }
 
-    /// This creates a GuestMemory object for this VM
+    /// This creates a GuestMemoryMmap object for this VM
     ///
     /// * `mem_size` - Desired physical memory size in bytes for this VM
-    fn setup_memory(mem_size: u64) -> Result<GuestMemory> {
+    fn setup_memory(mem_size: u64) -> Result<GuestMemoryMmap> {
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let mem = GuestMemory::new(&arch_mem_regions).map_err(Error::SetupGuestMemory)?;
+        let mem = GuestMemoryMmap::new(&arch_mem_regions).map_err(Error::SetupGuestMemory)?;
         Ok(mem)
     }
 
@@ -675,7 +675,7 @@ impl X8664arch {
     /// * `cpu_id` - The id of the given `vcpu`.
     /// * `num_cpus` - Number of virtual CPUs the guest will have.
     fn configure_vcpu(
-        guest_mem: &GuestMemory,
+        guest_mem: &GuestMemoryMmap,
         kvm: &Kvm,
         _vm: &Vm,
         vcpu: &Vcpu,

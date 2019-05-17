@@ -9,7 +9,7 @@ use std::fmt::{self, Display};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
-use vm_memory::{GuestAddress, GuestMemory};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
@@ -70,7 +70,7 @@ impl Display for Error {
 /// * `kernel_start` - The offset into `guest_mem` at which to load the kernel.
 /// * `kernel_image` - Input vmlinux image.
 pub fn load_kernel<F>(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     kernel_start: GuestAddress,
     kernel_image: &mut F,
 ) -> Result<u64>
@@ -130,10 +130,10 @@ where
             .checked_add(phdr.p_paddr)
             .ok_or(Error::InvalidProgramHeaderAddress)?;
         guest_mem
-            .read_to_memory(mem_offset, kernel_image, phdr.p_filesz as usize)
+            .read_exact_from(mem_offset, kernel_image, phdr.p_filesz as usize)
             .map_err(|_| Error::ReadKernelImage)?;
 
-        kernel_end = mem_offset.offset() + phdr.p_memsz;
+        kernel_end = mem_offset.raw_value() + phdr.p_memsz;
     }
 
     Ok(kernel_end)
@@ -147,7 +147,7 @@ where
 /// * `guest_addr` - The address in `guest_mem` at which to load the command line.
 /// * `cmdline` - The kernel command line.
 pub fn load_cmdline(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     guest_addr: GuestAddress,
     cmdline: &CStr,
 ) -> Result<()> {
@@ -164,7 +164,7 @@ pub fn load_cmdline(
     }
 
     guest_mem
-        .write_at_addr(cmdline.to_bytes_with_nul(), guest_addr)
+        .write(cmdline.to_bytes_with_nul(), guest_addr)
         .map_err(|_| Error::CommandLineCopy)?;
 
     Ok(())
@@ -174,12 +174,12 @@ pub fn load_cmdline(
 mod test {
     use super::*;
     use std::io::Cursor;
-    use sys_util::{GuestAddress, GuestMemory};
+    use sys_util::{GuestAddress, GuestMemoryMmap};
 
     const MEM_SIZE: u64 = 0x8000;
 
-    fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&vec![(GuestAddress(0x0), MEM_SIZE)]).unwrap()
+    fn create_guest_mem() -> GuestMemoryMmap {
+        GuestMemoryMmap::new(&vec![(GuestAddress(0x0), MEM_SIZE)]).unwrap()
     }
 
     #[test]
