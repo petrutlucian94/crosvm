@@ -28,6 +28,7 @@ mod eventfd_unix;
 mod eventfd_windows;
 
 mod file_traits;
+#[cfg(unix)]
 mod raw_fd;
 mod seek_hole;
 mod struct_util;
@@ -53,6 +54,7 @@ use crate::eventfd_windows as eventfd;
 pub use errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
+#[cfg(unix)]
 pub use crate::raw_fd::*;
 pub use crate::struct_util::*;
 pub use crate::tempdir::*;

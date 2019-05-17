@@ -4,7 +4,7 @@
 
 use std::cmp::min;
 use std::fs::File;
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom, Write, Error, ErrorKind, Result};
 
 /// A trait for deallocating space in a file.
 pub trait PunchHole {
@@ -16,7 +16,7 @@ impl PunchHole for File {
     fn punch_hole(&mut self, offset: u64, length: u64) -> io::Result<()> {
         // TODO(lpetrut): implement this using FSCTL_SET_ZERO_DATA
         // Note that this is already implemented for Qcow images.
-        Err("Not supported")
+        Err(Error::new(ErrorKind::Other, "NotImplemented"))
     }
 }
 
