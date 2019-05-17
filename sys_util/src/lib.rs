@@ -4,6 +4,9 @@
 
 //! Small system utility modules for usage by other modules.
 
+#[cfg(windows)]
+extern crate winapi;
+
 mod alloc;
 #[macro_use]
 pub mod handle_eintr;
@@ -13,8 +16,17 @@ pub mod ioctl;
 #[macro_use]
 pub mod syslog;
 mod clock;
-mod errno;
-mod eventfd;
+
+#[cfg(unix)]
+mod errno_unix;
+#[cfg(windows)]
+mod errno_windows;
+
+#[cfg(unix)]
+mod eventfd_unix;
+#[cfg(windows)]
+mod eventfd_windows;
+
 mod file_traits;
 mod poll;
 mod raw_fd;
@@ -28,7 +40,18 @@ mod write_zeroes;
 
 pub use crate::alloc::LayoutAllocation;
 pub use crate::clock::{Clock, FakeClock};
-use crate::errno::errno_result;
+
+#[cfg(unix)]
+use crate::errno_unix as errno;
+#[cfg(windows)]
+use crate::errno_windows as errno;
+
+#[cfg(unix)]
+use crate::eventfd_unix as eventfd;
+#[cfg(windows)]
+use crate::eventfd_windows as eventfd;
+
+pub use errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
 pub use crate::poll::*;

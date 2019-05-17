@@ -12,4 +12,9 @@ poll_token_derive = { version = "*", path = "poll_token_derive" }
 sync = { path = "../sync" } # provided by ebuild
 tempfile = "3.0.7"
 
+[target.'cfg(windows)'.dependencies.winapi]
+version = "0.3"
+features = ["synchapi", "winnt", "errhandlingapi", "handleapi",
+            "processthreadsapi", "winbase"]
+
 [workspace]
