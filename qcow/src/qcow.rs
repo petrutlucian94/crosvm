@@ -7,16 +7,19 @@ mod refcount;
 mod vec_cache;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use libc::{EINVAL, ENOSPC, ENOTSUP};
+use libc::{EINVAL, ENOSPC};
 use remain::sorted;
 use sys_util::{error, FileSetLen, FileSync, PunchHole, SeekHole, WriteZeroes};
+
+// Not defined on Windows.
+const ENOTSUP: i32 = 95;
 
 use std::cmp::min;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
-use std::os::unix::io::{AsRawFd, RawFd};
+// use std::os::unix::io::{AsRawFd, RawFd};
 
 use crate::qcow_raw_file::QcowRawFile;
 use crate::refcount::RefCount;
@@ -1311,11 +1314,11 @@ impl Drop for QcowFile {
     }
 }
 
-impl AsRawFd for QcowFile {
-    fn as_raw_fd(&self) -> RawFd {
-        self.raw_file.file().as_raw_fd()
-    }
-}
+// impl AsRawFd for QcowFile {
+//     fn as_raw_fd(&self) -> RawFd {
+//         self.raw_file.file().as_raw_fd()
+//     }
+// }
 
 impl Read for QcowFile {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {

@@ -62,6 +62,7 @@ pub use crate::tempdir::*;
 pub use crate::terminal::*;
 pub use crate::timerfd::*;
 
+pub use crate::seek_hole::SeekHole;
 pub use crate::file_traits::{FileSetLen, FileSync};
 pub use crate::write_zeroes::{PunchHole, WriteZeroes};
 
