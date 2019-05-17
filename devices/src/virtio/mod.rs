@@ -4,24 +4,18 @@
 
 //! Implements virtio devices, queues, and transport mechanisms.
 
-mod balloon;
 mod block;
-mod input;
-mod net;
+// mod input;
 mod queue;
 mod virtio_device;
 mod virtio_pci_common_config;
 mod virtio_pci_device;
-mod wl;
 
-pub use self::balloon::*;
 pub use self::block::*;
-pub use self::input::*;
-pub use self::net::*;
+// pub use self::input::*;
 pub use self::queue::*;
 pub use self::virtio_device::*;
 pub use self::virtio_pci_device::*;
-pub use self::wl::*;
 
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
 const DEVICE_DRIVER: u32 = 0x02;

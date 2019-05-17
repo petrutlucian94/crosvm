@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 use std::u32;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryError}
+use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryError};
 
 use sync::Mutex;
 use sys_util::Error as SysError;
@@ -498,7 +498,7 @@ impl Request {
                         ioerr: e,
                         sector: self.sector,
                     })?;
-                mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
+                mem.read_exact_from(self.data_addr, disk, self.data_len as usize)
                     .map_err(|e| ExecuteError::Read {
                         addr: self.data_addr,
                         length: self.data_len,

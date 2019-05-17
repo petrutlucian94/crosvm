@@ -6,7 +6,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{GuestAddress, GuestMemoryMmap}
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use sys_util::{error};
 
