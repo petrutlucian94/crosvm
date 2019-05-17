@@ -39,7 +39,7 @@ mod timerfd;
 mod write_zeroes;
 
 pub use crate::alloc::LayoutAllocation;
-pub use crate::clock::{Clock, FakeClock};
+pub use crate::clock::{Clock};
 
 #[cfg(unix)]
 use crate::errno_unix as errno;
