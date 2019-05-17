@@ -59,7 +59,7 @@ impl EventFd {
         };
 
         // We're ignoring timeouts (we're using an infinite timeout) as well as
-    // WAIT_ABANDONED values.
+        // WAIT_ABANDONED values.
         match result {
             WAIT_FAILED => {
                 return errno_result();
@@ -73,8 +73,8 @@ impl EventFd {
     /// Clones this EventFd, internally creating a new file descriptor. The new EventFd will share
     /// the same underlying count within the kernel.
     pub fn try_clone(&self) -> Result<EventFd> {
-        let mut evt_clone: HANDLE;
-        let failed = unsafe {
+        let mut evt_clone: HANDLE = unsafe { std::mem::uninitialized() };
+        let result = unsafe {
             DuplicateHandle(
                 GetCurrentProcess(),
                 self.eventfd,
@@ -85,7 +85,7 @@ impl EventFd {
                 DUPLICATE_SAME_ACCESS)
         };
 
-        if failed != 0 {
+        if result == 0 {
             return errno_result();
         }
         Ok(EventFd {
@@ -113,3 +113,13 @@ impl EventFd {
 //         self.eventfd.into_raw_fd()
 //     }
 // }
+
+#[test]
+fn test_event() {
+    let evt = EventFd::new().unwrap();
+    evt.write(1);
+
+    let evt2 = evt.try_clone().unwrap();
+
+    evt2.read();
+}
