@@ -50,6 +50,5 @@ sys_util = "*"
 [patch.crates-io]
 assertions = { path = "assertions" }
 data_model = { path = "data_model" }
-poll_token_derive = { path = "sys_util/poll_token_derive" }
 sync = { path = "sync" }
 sys_util = { path = "sys_util" }

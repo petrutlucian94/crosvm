@@ -8,7 +8,6 @@ include = ["src/**/*", "Cargo.toml"]
 [dependencies]
 data_model = { path = "../data_model" } # provided by ebuild
 libc = "*"
-poll_token_derive = { version = "*", path = "poll_token_derive" }
 sync = { path = "../sync" } # provided by ebuild
 tempfile = "3.0.7"
 

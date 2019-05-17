@@ -28,7 +28,6 @@ mod eventfd_unix;
 mod eventfd_windows;
 
 mod file_traits;
-mod poll;
 mod raw_fd;
 mod seek_hole;
 mod struct_util;
@@ -54,14 +53,12 @@ use crate::eventfd_windows as eventfd;
 pub use errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
-pub use crate::poll::*;
 pub use crate::raw_fd::*;
 pub use crate::struct_util::*;
 pub use crate::tempdir::*;
 #[cfg(unix)]
 pub use crate::terminal::*;
 pub use crate::timerfd::*;
-pub use poll_token_derive::*;
 
 pub use crate::file_traits::{FileSetLen, FileSync};
 pub use crate::write_zeroes::{PunchHole, WriteZeroes};
