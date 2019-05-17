@@ -15,7 +15,6 @@ remain = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
-virtio_sys = { path = "../virtio_sys" }
 vm_control = { path = "../vm_control" }
 
 [dependencies.vm-memory]
