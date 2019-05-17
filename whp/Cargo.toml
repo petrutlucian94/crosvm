@@ -5,6 +5,13 @@ authors = ["Jenny Mankin"]
 edition = "2018"
 
 [dependencies]
-libwhp = { path = "../../libwhp" }
-vmm-vcpu = { path = "../../vmm-vcpu" }
+libwhp = { path = "../libwhp" }
+vmm-vcpu = { path = "../vmm-vcpu" }
 libc = "*"
+
+kvm-bindings = "0.1"
+
+[dependencies.vm-memory]
+path = "../vm-memory"
+default-features = false
+features = ["backend-mmap"]

@@ -2,66 +2,207 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-//! A safe wrapper around the Windows Hypervisor Platform (WHP) interface
+//! A safe wrapper around the kernel's KVM interface.
+
+use libwhp::VirtualProcessor;
+use libwhp::whp_vcpu::*;
+
+extern crate vm_memory;
+
+// Ideally we'l do something like we did in the vcpu crate where we defined 
+// hypervisor-agnostic versions of these, but for now just use kvm_bindings directly
+extern crate kvm_bindings;
+
+use std::os::raw::*;
+//use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+
+//use vm_memory::{GuestAddress, GuestMemory, MmapRegion};
+use kvm_bindings::{
+    kvm_debugregs as DebugRegisters,
+    kvm_xcrs as ExtendedControlRegisters,
+    kvm_mp_state as MpState,
+    kvm_vcpu_events as VcpuEvents
+    };
+
+use vmm_vcpu::vcpu::{Result};
+
+pub trait VcpuExtra {
+    /*
+    fn new(id: c_ulong, kvm: &Kvm, vm: &Vm) -> Result<Vcpu>;
+    fn get_memory(&self) -> &GuestMemory;
+    */
+    fn set_data(&self, data: &[u8]) -> Result<()>;
+    fn get_debugregs(&self) -> Result<DebugRegisters>;
+    fn set_debugregs(&self, dregs: &DebugRegisters) -> Result<()>;
+    fn get_xcrs(&self) -> Result<ExtendedControlRegisters>;
+    fn set_xcrs(&self, xcrs: &ExtendedControlRegisters) -> Result<()>;
+    fn get_mp_state(&self) -> Result<MpState>;
+    fn set_mp_state(&self, state: &MpState) -> Result<()>;
+    fn get_vcpu_events(&self) -> Result<VcpuEvents>;
+    fn set_vcpu_events(&self, events: &VcpuEvents) -> Result<()>;
+    fn kvmclock_ctrl(&self) -> Result<()>;
+    fn set_signal_mask(&self, signals: &[c_int]) -> Result<()>;
+    fn interrupt(&self, irq: u32) -> Result<()>;
+}
+
+impl VcpuExtra for VirtualProcessor {
+    /// Constructs a new VCPU for `vm`.
+    ///
+    /// The `id` argument is the CPU number between [0, max vcpus).
+    /*
+    fn new(id: c_ulong, kvm: &Kvm, vm: &Vm) -> Result<Vcpu> {
+        unimplemented!();
+    }
+
+    /// Gets a reference to the guest memory owned by this VM of this VCPU.
+    ///
+    /// Note that `GuestMemory` does not include any device memory that may have been added after
+    /// this VM was constructed.
+    fn get_memory(&self) -> &GuestMemory {
+        unimplemented!();
+        &self.guest_mem
+    }
+    */
+
+    /// Sets the data received by an mmio or ioport read/in instruction.
+    ///
+    /// This function should be called after `Vcpu::run` returns an `VcpuExit::IoIn` or
+    /// `Vcpu::MmioRead`.
+    #[allow(clippy::cast_ptr_alignment)]
+    fn set_data(&self, _data: &[u8]) -> Result<()> {
+        unimplemented!();
+    }
+
+    /// Gets the VCPU debug registers.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[allow(unreachable_code)]
+    fn get_debugregs(&self) -> Result<DebugRegisters> {
+        unimplemented!();
+        let mut regs = unsafe { std::mem::zeroed() };
+        Ok(regs)
+    }
+
+    /// Sets the VCPU debug registers
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn set_debugregs(&self, _dregs: &DebugRegisters) -> Result<()> {
+        unimplemented!();
+        Ok(())
+    }
+
+    /// Gets the VCPU extended control registers
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn get_xcrs(&self) -> Result<ExtendedControlRegisters> {
+        unimplemented!();
+        let mut regs = unsafe { std::mem::zeroed() };
+        Ok(regs)
+    }
+
+    /// Sets the VCPU extended control registers
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn set_xcrs(&self, _xcrs: &ExtendedControlRegisters) -> Result<()> {
+        unimplemented!();
+        Ok(())
+    }
+
+    /// Gets the vcpu's current "multiprocessing state".
+    ///
+    /// See the documentation for KVM_GET_MP_STATE. This call can only succeed after
+    /// a call to `Vm::create_irq_chip`.
+    ///
+    /// Note that KVM defines the call for both x86 and s390 but we do not expect anyone
+    /// to run crosvm on s390.
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn get_mp_state(&self) -> Result<MpState> {
+        unimplemented!();
+        let mut state: MpState = unsafe { std::mem::zeroed() };
+        Ok(state)
+    }
+
+    /// Sets the vcpu's current "multiprocessing state".
+    ///
+    /// See the documentation for KVM_SET_MP_STATE. This call can only succeed after
+    /// a call to `Vm::create_irq_chip`.
+    ///
+    /// Note that KVM defines the call for both x86 and s390 but we do not expect anyone
+    /// to run crosvm on s390.
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn set_mp_state(&self, _state: &MpState) -> Result<()> {
+        unimplemented!();
+        Ok(())
+    }
+
+    /// Gets the vcpu's currently pending exceptions, interrupts, NMIs, etc
+    ///
+    /// See the documentation for KVM_GET_VCPU_EVENTS.
+    ///
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn get_vcpu_events(&self) -> Result<VcpuEvents> {
+        unimplemented!();
+        let mut events: VcpuEvents = unsafe { std::mem::zeroed() };
+        Ok(events)
+    }
+
+    /// Sets the vcpu's currently pending exceptions, interrupts, NMIs, etc
+    ///
+    /// See the documentation for KVM_SET_VCPU_EVENTS.
+    ///
+    #[allow(unreachable_code)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn set_vcpu_events(&self, _events: &VcpuEvents) -> Result<()> {
+        unimplemented!();
+        Ok(())
+    }
+
+    /// Signals to the host kernel that this VCPU is about to be paused.
+    ///
+    /// See the documentation for KVM_KVMCLOCK_CTRL.
+    #[allow(unreachable_code)]
+    fn kvmclock_ctrl(&self) -> Result<()> {
+        unimplemented!();
+        Ok(())
+    }
+
+    /// Specifies set of signals that are blocked during execution of KVM_RUN.
+    /// Signals that are not blocked will will cause KVM_RUN to return
+    /// with -EINTR.
+    ///
+    /// See the documentation for KVM_SET_SIGNAL_MASK
+    #[allow(unreachable_code)]
+    fn set_signal_mask(&self, _signals: &[c_int]) -> Result<()> {
+        unimplemented!();
+        Ok(())
+    }
+
+    /// Use request_interrupt to inject the specified interrupt vector.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn interrupt(&self, irq: u32) -> Result<()> {
+        let mut interrupt: WHV_INTERRUPT_CONTROL = Default::default();
+
+        interrupt.set_InterruptType(
+            WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed as UINT64);
+        interrupt.set_DestinationMode(
+            WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModePhysical as UINT64);
+        interrupt.set_TriggerMode(
+            WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge as UINT64);
+        interrupt.Destination = 0;
+        interrupt.Vector = irq;
+
+        self.request_interrupt(&mut interrupt).unwrap();
+
+        Ok(())
+    }
+}
+
 
 /*
-use std::cmp::{min, Ordering};
-use std::collections::hash_map::Entry;
-use std::collections::{BinaryHeap, HashMap};
-use std::fs::File;
-use std::mem::size_of;
-use std::os::raw::*;
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use std::ptr::copy_nonoverlapping;
-
-use libc::sigset_t;
-use libc::{open, EINVAL, ENOENT, ENOSPC, O_CLOEXEC, O_RDWR};
-
-use kvm_sys::*;
-
-#[allow(unused_imports)]
-use sys_util::{
-    ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
-};
-use sys_util::{
-    pagesize, signal, warn, Error, EventFd, GuestAddress, GuestMemory, MemoryMapping, Result,
-};
-
-pub use crate::cap::*;
-
 fn errno_result<T>() -> Result<T> {
     Err(Error::last())
-}
-
-// Returns a `Vec<T>` with a size in ytes at least as large as `size_in_bytes`.
-fn vec_with_size_in_bytes<T: Default>(size_in_bytes: usize) -> Vec<T> {
-    let rounded_size = (size_in_bytes + size_of::<T>() - 1) / size_of::<T>();
-    let mut v = Vec::with_capacity(rounded_size);
-    for _ in 0..rounded_size {
-        v.push(T::default())
-    }
-    v
-}
-
-// The kvm API has many structs that resemble the following `Foo` structure:
-//
-// ```
-// #[repr(C)]
-// struct Foo {
-//    some_data: u32
-//    entries: __IncompleteArrayField<__u32>,
-// }
-// ```
-//
-// In order to allocate such a structure, `size_of::<Foo>()` would be too small because it would not
-// include any space for `entries`. To make the allocation large enough while still being aligned
-// for `Foo`, a `Vec<Foo>` is created. Only the first element of `Vec<Foo>` would actually be used
-// as a `Foo`. The remaining memory in the `Vec<Foo>` is for `entries`, which must be contiguous
-// with `Foo`. This function is used to make the `Vec<Foo>` with enough space for `count` entries.
-fn vec_with_array_field<T: Default, F>(count: usize) -> Vec<T> {
-    let element_space = count * size_of::<F>();
-    let vec_size_bytes = size_of::<T>() + element_space;
-    vec_with_size_in_bytes(vec_size_bytes)
 }
 
 unsafe fn set_user_memory_region<F: AsRawFd>(
@@ -291,7 +432,7 @@ impl PartialOrd for MemSlot {
 pub struct Vm {
     vm: File,
     guest_mem: GuestMemory,
-    device_memory: HashMap<u32, MemoryMapping>,
+    device_memory: HashMap<u32, MmapRegion>,
     mem_slot_gaps: BinaryHeap<MemSlot>,
 }
 
@@ -341,7 +482,7 @@ impl Vm {
         unsafe { ioctl_with_val(self, KVM_CHECK_EXTENSION(), c as c_ulong) == 1 }
     }
 
-    /// Inserts the given `MemoryMapping` into the VM's address space at `guest_addr`.
+    /// Inserts the given `MmapRegion` into the VM's address space at `guest_addr`.
     ///
     /// The slot that was assigned the device memory mapping is returned on success. The slot can be
     /// given to `Vm::remove_device_memory` to remove the memory from the VM's address space and
@@ -358,7 +499,7 @@ impl Vm {
     pub fn add_device_memory(
         &mut self,
         guest_addr: GuestAddress,
-        mem: MemoryMapping,
+        mem: MmapRegion,
         read_only: bool,
         log_dirty_pages: bool,
     ) -> Result<u32> {
@@ -376,7 +517,7 @@ impl Vm {
         };
 
         // Safe because we check that the given guest address is valid and has no overlaps. We also
-        // know that the pointer and size are correct because the MemoryMapping interface ensures
+        // know that the pointer and size are correct because the MmapRegion interface ensures
         // this. We take ownership of the memory mapping so that it won't be unmapped until the slot
         // is removed.
         unsafe {
@@ -398,7 +539,7 @@ impl Vm {
     /// Removes device memory that was previously added at the given slot.
     ///
     /// Ownership of the host memory mapping associated with the given slot is returned on success.
-    pub fn remove_device_memory(&mut self, slot: u32) -> Result<MemoryMapping> {
+    pub fn remove_device_memory(&mut self, slot: u32) -> Result<MmapRegion> {
         match self.device_memory.entry(slot) {
             Entry::Occupied(entry) => {
                 // Safe because the slot is checked against the list of device memory slots.
@@ -1017,631 +1158,14 @@ pub enum VcpuExit {
 /// A wrapper around creating and using a VCPU.
 pub struct Vcpu {
     vcpu: File,
-    run_mmap: MemoryMapping,
+    run_mmap: MmapRegion,
     guest_mem: GuestMemory,
 }
 
-impl Vcpu {
-    /// Constructs a new VCPU for `vm`.
-    ///
-    /// The `id` argument is the CPU number between [0, max vcpus).
-    pub fn new(id: c_ulong, kvm: &Kvm, vm: &Vm) -> Result<Vcpu> {
-        let run_mmap_size = kvm.get_vcpu_mmap_size()?;
-
-        // Safe because we know that vm a VM fd and we verify the return result.
-        let vcpu_fd = unsafe { ioctl_with_val(vm, KVM_CREATE_VCPU(), id) };
-        if vcpu_fd < 0 {
-            return errno_result();
-        }
-
-        // Wrap the vcpu now in case the following ? returns early. This is safe because we verified
-        // the value of the fd and we own the fd.
-        let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
-
-        let run_mmap =
-            MemoryMapping::from_fd(&vcpu, run_mmap_size).map_err(|_| Error::new(ENOSPC))?;
-
-        let guest_mem = vm.guest_mem.clone();
-
-        Ok(Vcpu {
-            vcpu,
-            run_mmap,
-            guest_mem,
-        })
-    }
-
-    /// Gets a reference to the guest memory owned by this VM of this VCPU.
-    ///
-    /// Note that `GuestMemory` does not include any device memory that may have been added after
-    /// this VM was constructed.
-    pub fn get_memory(&self) -> &GuestMemory {
-        &self.guest_mem
-    }
-
-    /// Sets the data received by an mmio or ioport read/in instruction.
-    ///
-    /// This function should be called after `Vcpu::run` returns an `VcpuExit::IoIn` or
-    /// `Vcpu::MmioRead`.
-    #[allow(clippy::cast_ptr_alignment)]
-    pub fn set_data(&self, data: &[u8]) -> Result<()> {
-        // Safe because we know we mapped enough memory to hold the kvm_run struct because the
-        // kernel told us how large it was. The pointer is page aligned so casting to a different
-        // type is well defined, hence the clippy allow attribute.
-        let run = unsafe { &mut *(self.run_mmap.as_ptr() as *mut kvm_run) };
-        match run.exit_reason {
-            KVM_EXIT_IO => {
-                let run_start = run as *mut kvm_run as *mut u8;
-                // Safe because the exit_reason (which comes from the kernel) told us which
-                // union field to use.
-                let io = unsafe { run.__bindgen_anon_1.io };
-                if io.direction as u32 != KVM_EXIT_IO_IN {
-                    return Err(Error::new(EINVAL));
-                }
-                let data_size = (io.count as usize) * (io.size as usize);
-                if data_size != data.len() {
-                    return Err(Error::new(EINVAL));
-                }
-                // The data_offset is defined by the kernel to be some number of bytes into the
-                // kvm_run structure, which we have fully mmap'd.
-                unsafe {
-                    let data_ptr = run_start.offset(io.data_offset as isize);
-                    copy_nonoverlapping(data.as_ptr(), data_ptr, data_size);
-                }
-                Ok(())
-            }
-            KVM_EXIT_MMIO => {
-                // Safe because the exit_reason (which comes from the kernel) told us which
-                // union field to use.
-                let mmio = unsafe { &mut run.__bindgen_anon_1.mmio };
-                if mmio.is_write != 0 {
-                    return Err(Error::new(EINVAL));
-                }
-                let len = mmio.len as usize;
-                if len != data.len() {
-                    return Err(Error::new(EINVAL));
-                }
-                mmio.data[..len].copy_from_slice(data);
-                Ok(())
-            }
-            _ => Err(Error::new(EINVAL)),
-        }
-    }
-
-    /// Runs the VCPU until it exits, returning the reason.
-    ///
-    /// Note that the state of the VCPU and associated VM must be setup first for this to do
-    /// anything useful.
-    #[allow(clippy::cast_ptr_alignment)]
-    // The pointer is page aligned so casting to a different type is well defined, hence the clippy
-    // allow attribute.
-    pub fn run(&self) -> Result<VcpuExit> {
-        // Safe because we know that our file is a VCPU fd and we verify the return result.
-        let ret = unsafe { ioctl(self, KVM_RUN()) };
-        if ret == 0 {
-            // Safe because we know we mapped enough memory to hold the kvm_run struct because the
-            // kernel told us how large it was.
-            let run = unsafe { &*(self.run_mmap.as_ptr() as *const kvm_run) };
-            match run.exit_reason {
-                KVM_EXIT_IO => {
-                    // Safe because the exit_reason (which comes from the kernel) told us which
-                    // union field to use.
-                    let io = unsafe { run.__bindgen_anon_1.io };
-                    let port = io.port;
-                    let size = (io.count as usize) * (io.size as usize);
-                    match io.direction as u32 {
-                        KVM_EXIT_IO_IN => Ok(VcpuExit::IoIn { port, size }),
-                        KVM_EXIT_IO_OUT => {
-                            let mut data = [0; 8];
-                            let run_start = run as *const kvm_run as *const u8;
-                            // The data_offset is defined by the kernel to be some number of bytes
-                            // into the kvm_run structure, which we have fully mmap'd.
-                            unsafe {
-                                let data_ptr = run_start.offset(io.data_offset as isize);
-                                copy_nonoverlapping(
-                                    data_ptr,
-                                    data.as_mut_ptr(),
-                                    min(size, data.len()),
-                                );
-                            }
-                            Ok(VcpuExit::IoOut { port, size, data })
-                        }
-                        _ => Err(Error::new(EINVAL)),
-                    }
-                }
-                KVM_EXIT_MMIO => {
-                    // Safe because the exit_reason (which comes from the kernel) told us which
-                    // union field to use.
-                    let mmio = unsafe { &run.__bindgen_anon_1.mmio };
-                    let address = mmio.phys_addr;
-                    let size = min(mmio.len as usize, mmio.data.len());
-                    if mmio.is_write != 0 {
-                        Ok(VcpuExit::MmioWrite {
-                            address,
-                            size,
-                            data: mmio.data,
-                        })
-                    } else {
-                        Ok(VcpuExit::MmioRead { address, size })
-                    }
-                }
-                KVM_EXIT_UNKNOWN => Ok(VcpuExit::Unknown),
-                KVM_EXIT_EXCEPTION => Ok(VcpuExit::Exception),
-                KVM_EXIT_HYPERCALL => Ok(VcpuExit::Hypercall),
-                KVM_EXIT_DEBUG => Ok(VcpuExit::Debug),
-                KVM_EXIT_HLT => Ok(VcpuExit::Hlt),
-                KVM_EXIT_IRQ_WINDOW_OPEN => Ok(VcpuExit::IrqWindowOpen),
-                KVM_EXIT_SHUTDOWN => Ok(VcpuExit::Shutdown),
-                KVM_EXIT_FAIL_ENTRY => Ok(VcpuExit::FailEntry),
-                KVM_EXIT_INTR => Ok(VcpuExit::Intr),
-                KVM_EXIT_SET_TPR => Ok(VcpuExit::SetTpr),
-                KVM_EXIT_TPR_ACCESS => Ok(VcpuExit::TprAccess),
-                KVM_EXIT_S390_SIEIC => Ok(VcpuExit::S390Sieic),
-                KVM_EXIT_S390_RESET => Ok(VcpuExit::S390Reset),
-                KVM_EXIT_DCR => Ok(VcpuExit::Dcr),
-                KVM_EXIT_NMI => Ok(VcpuExit::Nmi),
-                KVM_EXIT_INTERNAL_ERROR => Ok(VcpuExit::InternalError),
-                KVM_EXIT_OSI => Ok(VcpuExit::Osi),
-                KVM_EXIT_PAPR_HCALL => Ok(VcpuExit::PaprHcall),
-                KVM_EXIT_S390_UCONTROL => Ok(VcpuExit::S390Ucontrol),
-                KVM_EXIT_WATCHDOG => Ok(VcpuExit::Watchdog),
-                KVM_EXIT_S390_TSCH => Ok(VcpuExit::S390Tsch),
-                KVM_EXIT_EPR => Ok(VcpuExit::Epr),
-                KVM_EXIT_SYSTEM_EVENT => {
-                    // Safe because we know the exit reason told us this union
-                    // field is valid
-                    let event_type = unsafe { run.__bindgen_anon_1.system_event.type_ };
-                    let event_flags = unsafe { run.__bindgen_anon_1.system_event.flags };
-                    Ok(VcpuExit::SystemEvent(event_type, event_flags))
-                }
-                r => panic!("unknown kvm exit reason: {}", r),
-            }
-        } else {
-            errno_result()
-        }
-    }
-
-    /// Gets the VCPU registers.
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-    pub fn get_regs(&self) -> Result<kvm_regs> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
-        // correct amount of memory from our pointer, and we verify the return result.
-        let mut regs = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_REGS(), &mut regs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(regs)
-    }
-
-    /// Sets the VCPU registers.
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-    pub fn set_regs(&self, regs: &kvm_regs) -> Result<()> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
-        // correct amount of memory from our pointer, and we verify the return result.
-        let ret = unsafe { ioctl_with_ref(self, KVM_SET_REGS(), regs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Gets the VCPU special registers.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_sregs(&self) -> Result<kvm_sregs> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only write the
-        // correct amount of memory to our pointer, and we verify the return result.
-        let mut regs = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_SREGS(), &mut regs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(regs)
-    }
-
-    /// Sets the VCPU special registers.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_sregs(&self, sregs: &kvm_sregs) -> Result<()> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
-        // correct amount of memory from our pointer, and we verify the return result.
-        let ret = unsafe { ioctl_with_ref(self, KVM_SET_SREGS(), sregs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Gets the VCPU FPU registers.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_fpu(&self) -> Result<kvm_fpu> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only write the
-        // correct amount of memory to our pointer, and we verify the return result.
-        let mut regs = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_FPU(), &mut regs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(regs)
-    }
-
-    /// X86 specific call to setup the FPU
-    ///
-    /// See the documentation for KVM_SET_FPU.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_fpu(&self, fpu: &kvm_fpu) -> Result<()> {
-        let ret = unsafe {
-            // Here we trust the kernel not to read past the end of the kvm_fpu struct.
-            ioctl_with_ref(self, KVM_SET_FPU(), fpu)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Gets the VCPU debug registers.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_debugregs(&self) -> Result<kvm_debugregs> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only write the
-        // correct amount of memory to our pointer, and we verify the return result.
-        let mut regs = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_DEBUGREGS(), &mut regs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(regs)
-    }
-
-    /// Sets the VCPU debug registers
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_debugregs(&self, dregs: &kvm_debugregs) -> Result<()> {
-        let ret = unsafe {
-            // Here we trust the kernel not to read past the end of the kvm_fpu struct.
-            ioctl_with_ref(self, KVM_SET_DEBUGREGS(), dregs)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Gets the VCPU extended control registers
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_xcrs(&self) -> Result<kvm_xcrs> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only write the
-        // correct amount of memory to our pointer, and we verify the return result.
-        let mut regs = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_XCRS(), &mut regs) };
-        if ret != 0 {
-            return errno_result();
-        }
-        Ok(regs)
-    }
-
-    /// Sets the VCPU extended control registers
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_xcrs(&self, xcrs: &kvm_xcrs) -> Result<()> {
-        let ret = unsafe {
-            // Here we trust the kernel not to read past the end of the kvm_xcrs struct.
-            ioctl_with_ref(self, KVM_SET_XCRS(), xcrs)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// X86 specific call to get the MSRS
-    ///
-    /// See the documentation for KVM_SET_MSRS.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_msrs(&self, msr_entries: &mut Vec<kvm_msr_entry>) -> Result<()> {
-        let mut msrs = vec_with_array_field::<kvm_msrs, kvm_msr_entry>(msr_entries.len());
-        unsafe {
-            // Mapping the unsized array to a slice is unsafe because the length isn't known.
-            // Providing the length used to create the struct guarantees the entire slice is valid.
-            let entries: &mut [kvm_msr_entry] = msrs[0].entries.as_mut_slice(msr_entries.len());
-            entries.copy_from_slice(&msr_entries);
-        }
-        msrs[0].nmsrs = msr_entries.len() as u32;
-        let ret = unsafe {
-            // Here we trust the kernel not to read or write past the end of the kvm_msrs struct.
-            ioctl_with_ref(self, KVM_GET_MSRS(), &msrs[0])
-        };
-        if ret < 0 {
-            // KVM_SET_MSRS actually returns the number of msr entries written.
-            return errno_result();
-        }
-        unsafe {
-            let count = ret as usize;
-            assert!(count <= msr_entries.len());
-            let entries: &mut [kvm_msr_entry] = msrs[0].entries.as_mut_slice(count);
-            msr_entries.truncate(count);
-            msr_entries.copy_from_slice(&entries);
-        }
-        Ok(())
-    }
-
-    /// X86 specific call to setup the MSRS
-    ///
-    /// See the documentation for KVM_SET_MSRS.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_msrs(&self, msrs: &kvm_msrs) -> Result<()> {
-        let ret = unsafe {
-            // Here we trust the kernel not to read past the end of the kvm_msrs struct.
-            ioctl_with_ref(self, KVM_SET_MSRS(), msrs)
-        };
-        if ret < 0 {
-            // KVM_SET_MSRS actually returns the number of msr entries written.
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// X86 specific call to setup the CPUID registers
-    ///
-    /// See the documentation for KVM_SET_CPUID2.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_cpuid2(&self, cpuid: &CpuId) -> Result<()> {
-        let ret = unsafe {
-            // Here we trust the kernel not to read past the end of the kvm_msrs struct.
-            ioctl_with_ptr(self, KVM_SET_CPUID2(), cpuid.as_ptr())
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// X86 specific call to get the state of the "Local Advanced Programmable Interrupt Controller".
-    ///
-    /// See the documentation for KVM_GET_LAPIC.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_lapic(&self) -> Result<kvm_lapic_state> {
-        let mut klapic: kvm_lapic_state = Default::default();
-
-        let ret = unsafe {
-            // The ioctl is unsafe unless you trust the kernel not to write past the end of the
-            // local_apic struct.
-            ioctl_with_mut_ref(self, KVM_GET_LAPIC(), &mut klapic)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(klapic)
-    }
-
-    /// X86 specific call to set the state of the "Local Advanced Programmable Interrupt Controller".
-    ///
-    /// See the documentation for KVM_SET_LAPIC.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_lapic(&self, klapic: &kvm_lapic_state) -> Result<()> {
-        let ret = unsafe {
-            // The ioctl is safe because the kernel will only read from the klapic struct.
-            ioctl_with_ref(self, KVM_SET_LAPIC(), klapic)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Gets the vcpu's current "multiprocessing state".
-    ///
-    /// See the documentation for KVM_GET_MP_STATE. This call can only succeed after
-    /// a call to `Vm::create_irq_chip`.
-    ///
-    /// Note that KVM defines the call for both x86 and s390 but we do not expect anyone
-    /// to run crosvm on s390.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_mp_state(&self) -> Result<kvm_mp_state> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel will only
-        // write correct amount of memory to our pointer, and we verify the return result.
-        let mut state: kvm_mp_state = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_MP_STATE(), &mut state) };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(state)
-    }
-
-    /// Sets the vcpu's current "multiprocessing state".
-    ///
-    /// See the documentation for KVM_SET_MP_STATE. This call can only succeed after
-    /// a call to `Vm::create_irq_chip`.
-    ///
-    /// Note that KVM defines the call for both x86 and s390 but we do not expect anyone
-    /// to run crosvm on s390.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_mp_state(&self, state: &kvm_mp_state) -> Result<()> {
-        let ret = unsafe {
-            // The ioctl is safe because the kernel will only read from the kvm_mp_state struct.
-            ioctl_with_ref(self, KVM_SET_MP_STATE(), state)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Gets the vcpu's currently pending exceptions, interrupts, NMIs, etc
-    ///
-    /// See the documentation for KVM_GET_VCPU_EVENTS.
-    ///
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_vcpu_events(&self) -> Result<kvm_vcpu_events> {
-        // Safe because we know that our file is a VCPU fd, we know the kernel
-        // will only write correct amount of memory to our pointer, and we
-        // verify the return result.
-        let mut events: kvm_vcpu_events = unsafe { std::mem::zeroed() };
-        let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_VCPU_EVENTS(), &mut events) };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(events)
-    }
-
-    /// Sets the vcpu's currently pending exceptions, interrupts, NMIs, etc
-    ///
-    /// See the documentation for KVM_SET_VCPU_EVENTS.
-    ///
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_vcpu_events(&self, events: &kvm_vcpu_events) -> Result<()> {
-        let ret = unsafe {
-            // The ioctl is safe because the kernel will only read from the
-            // kvm_vcpu_events.
-            ioctl_with_ref(self, KVM_SET_VCPU_EVENTS(), events)
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Signals to the host kernel that this VCPU is about to be paused.
-    ///
-    /// See the documentation for KVM_KVMCLOCK_CTRL.
-    pub fn kvmclock_ctrl(&self) -> Result<()> {
-        let ret = unsafe {
-            // The ioctl is safe because it does not read or write memory in this process.
-            ioctl(self, KVM_KVMCLOCK_CTRL())
-        };
-
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Specifies set of signals that are blocked during execution of KVM_RUN.
-    /// Signals that are not blocked will will cause KVM_RUN to return
-    /// with -EINTR.
-    ///
-    /// See the documentation for KVM_SET_SIGNAL_MASK
-    pub fn set_signal_mask(&self, signals: &[c_int]) -> Result<()> {
-        let sigset = signal::create_sigset(signals)?;
-
-        let mut kvm_sigmask = vec_with_array_field::<kvm_signal_mask, sigset_t>(1);
-        // Rust definition of sigset_t takes 128 bytes, but the kernel only
-        // expects 8-bytes structure, so we can't write
-        // kvm_sigmask.len  = size_of::<sigset_t>() as u32;
-        kvm_sigmask[0].len = 8;
-        // Ensure the length is not too big.
-        const _ASSERT: usize = size_of::<sigset_t>() - 8 as usize;
-
-        // Safe as we allocated exactly the needed space
-        unsafe {
-            copy_nonoverlapping(
-                &sigset as *const sigset_t as *const u8,
-                kvm_sigmask[0].sigset.as_mut_ptr(),
-                8,
-            );
-        }
-
-        let ret = unsafe {
-            // The ioctl is safe because the kernel will only read from the
-            // kvm_signal_mask structure.
-            ioctl_with_ref(self, KVM_SET_SIGNAL_MASK(), &kvm_sigmask[0])
-        };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Sets the value of one register on this VCPU.  The id of the register is
-    /// encoded as specified in the kernel documentation for KVM_SET_ONE_REG.
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn set_one_reg(&self, reg_id: u64, data: u64) -> Result<()> {
-        let data_ref = &data as *const u64;
-        let onereg = kvm_one_reg {
-            id: reg_id,
-            addr: data_ref as u64,
-        };
-        // safe becuase we allocated the struct and we know the kernel will read
-        // exactly the size of the struct
-        let ret = unsafe { ioctl_with_ref(self, KVM_SET_ONE_REG(), &onereg) };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// This initializes an ARM VCPU to the specified type with the specified features
-    /// and resets the values of all of its registers to defaults.
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn arm_vcpu_init(&self, kvi: &kvm_vcpu_init) -> Result<()> {
-        // safe becuase we allocated the struct and we know the kernel will read
-        // exactly the size of the struct
-        let ret = unsafe { ioctl_with_ref(self, KVM_ARM_VCPU_INIT(), kvi) };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
-    }
-
-    /// Use the KVM_INTERRUPT ioctl to inject the specified interrupt vector.
-    ///
-    /// While this ioctl exits on PPC and MIPS as well as x86, the semantics are different and
-    /// ChromeOS doesn't support PPC or MIPS.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn interrupt(&self, irq: u32) -> Result<()> {
-        let interrupt = kvm_interrupt { irq };
-        // safe becuase we allocated the struct and we know the kernel will read
-        // exactly the size of the struct
-        let ret = unsafe { ioctl_with_ref(self, KVM_INTERRUPT(), &interrupt) };
-        if ret < 0 {
-            errno_result()
-        } else {
-            Ok(())
-        }
-    }
-}
 
 impl AsRawFd for Vcpu {
     fn as_raw_fd(&self) -> RawFd {
         self.vcpu.as_raw_fd()
-    }
-}
-
-/// Wrapper for kvm_cpuid2 which has a zero length array at the end.
-/// Hides the zero length array behind a bounds check.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub struct CpuId {
-    kvm_cpuid: Vec<kvm_cpuid2>,
-    allocated_len: usize, // Number of kvm_cpuid_entry2 structs at the end of kvm_cpuid2.
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-impl CpuId {
-    pub fn new(array_len: usize) -> CpuId {
-        let mut kvm_cpuid = vec_with_array_field::<kvm_cpuid2, kvm_cpuid_entry2>(array_len);
-        kvm_cpuid[0].nent = array_len as u32;
-
-        CpuId {
-            kvm_cpuid,
-            allocated_len: array_len,
-        }
-    }
-
-    /// Get the entries slice so they can be modified before passing to the VCPU.
-    pub fn mut_entries_slice(&mut self) -> &mut [kvm_cpuid_entry2] {
-        // Mapping the unsized array to a slice is unsafe because the length isn't known.  Using
-        // the length we originally allocated with eliminates the possibility of overflow.
-        if self.kvm_cpuid[0].nent as usize > self.allocated_len {
-            self.kvm_cpuid[0].nent = self.allocated_len as u32;
-        }
-        let nent = self.kvm_cpuid[0].nent as usize;
-        unsafe { self.kvm_cpuid[0].entries.as_mut_slice(nent) }
-    }
-
-    /// Get a  pointer so it can be passed to the kernel.  Using this pointer is unsafe.
-    pub fn as_ptr(&self) -> *const kvm_cpuid2 {
-        &self.kvm_cpuid[0]
-    }
-
-    /// Get a mutable pointer so it can be passed to the kernel.  Using this pointer is unsafe.
-    pub fn as_mut_ptr(&mut self) -> *mut kvm_cpuid2 {
-        &mut self.kvm_cpuid[0]
     }
 }
 
@@ -1717,7 +1241,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         vm.add_device_memory(GuestAddress(0x1000), mem, false, false)
             .unwrap();
     }
@@ -1728,7 +1252,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         vm.add_device_memory(GuestAddress(0x1000), mem, true, false)
             .unwrap();
     }
@@ -1739,7 +1263,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         let mem_ptr = mem.as_ptr();
         let slot = vm
             .add_device_memory(GuestAddress(0x1000), mem, false, false)
@@ -1763,7 +1287,7 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm, gm).unwrap();
         let mem_size = 0x2000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
+        let mem = MmapRegion::new(mem_size).unwrap();
         assert!(vm
             .add_device_memory(GuestAddress(0x2000), mem, false, false)
             .is_err());
