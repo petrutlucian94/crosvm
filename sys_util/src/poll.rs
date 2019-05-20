@@ -75,7 +75,7 @@ impl PollContext {
 
 #[cfg(test)]
 mod tests {
-    use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
+    use std::os::windows::io::{AsRawHandle, RawHandle};
 
     use crate::EventFd;
     use crate::{PollContext, PollResult};

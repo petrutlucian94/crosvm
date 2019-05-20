@@ -6,7 +6,7 @@ use std::alloc::Layout;
 use std::fmt::{self, Display};
 use std::{mem, result};
 
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestMemory, GuestAddress, GuestMemoryMmap};
 
 use assertions::const_assert;
 use kvm;
@@ -221,7 +221,7 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
             .checked_offset(boot_gdt_addr, (index * mem::size_of::<u64>()) as u64)
             .ok_or(Error::WriteGDTFailure)?;
         guest_mem
-            .write_obj_at_addr(*entry, addr)
+            .write_obj(*entry, addr)
             .map_err(|_| Error::WriteGDTFailure)?;
     }
     Ok(())
@@ -230,7 +230,7 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
 fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<()> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem
-        .write_obj_at_addr(val, boot_idt_addr)
+        .write_obj(val, boot_idt_addr)
         .map_err(|_| Error::WriteIDTFailure)
 }
 
@@ -277,20 +277,20 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
     let boot_pde_addr = GuestAddress(0xb000);
 
     // Entry covering VA [0..512GB)
-    mem.write_obj_at_addr(boot_pdpte_addr.offset() as u64 | 0x03, boot_pml4_addr)
+    mem.write_obj(boot_pdpte_addr.raw_value() as u64 | 0x03, boot_pml4_addr)
         .map_err(|_| Error::WritePML4Address)?;
 
     // Entry covering VA [0..1GB)
-    mem.write_obj_at_addr(boot_pde_addr.offset() as u64 | 0x03, boot_pdpte_addr)
+    mem.write_obj(boot_pde_addr.raw_value() as u64 | 0x03, boot_pdpte_addr)
         .map_err(|_| Error::WritePDPTEAddress)?;
 
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
     for i in 0..512 {
-        mem.write_obj_at_addr((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
+        mem.write_obj((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
             .map_err(|_| Error::WritePDEAddress)?;
     }
-    sregs.cr3 = boot_pml4_addr.offset() as u64;
+    sregs.cr3 = boot_pml4_addr.raw_value() as u64;
     sregs.cr4 |= X86_CR4_PAE;
     sregs.cr0 |= X86_CR0_PG;
     sregs.efer |= EFER_LMA; // Long mode is active. Must be auto-enabled with CR0_PG.
@@ -325,7 +325,7 @@ mod tests {
 
     fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {
         let read_addr = GuestAddress(offset);
-        gm.read_obj_from_addr(read_addr).unwrap()
+        gm.read_obj(read_addr).unwrap()
     }
 
     #[test]

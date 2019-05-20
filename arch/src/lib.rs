@@ -12,10 +12,9 @@ use std::error::Error as StdError;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 
-use vm_memory::GuestAddress, GuestMemoryMmap, GuestMemoryError;
+use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryError};
 
 use devices::virtio::VirtioDevice;
 use devices::{
@@ -180,10 +179,8 @@ pub fn generate_pci_root(
             vm.register_ioevent(&event, io_addr, datamatch)
                 .map_err(DeviceRegistrationError::RegisterIoevent)?;
         }
-        // TODO(lpetrut): we can most probably drop this as well.
-        device.on_sandboxed();
-        Arc::new(Mutex::new(device))
 
+        let arced_dev = Arc::new(Mutex::new(device));
         root.add_device(arced_dev.clone());
         for range in &ranges {
             mmio_bus

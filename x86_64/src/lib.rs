@@ -27,8 +27,8 @@ impl Clone for bootparam::boot_params {
     }
 }
 // boot_params is just a series of ints, it is safe to initialize it.
-unsafe impl data_model::DataInit for bootparam::boot_params {}
-unsafe impl data_model::DataInit for bootparam::setup_data {}
+unsafe impl vm_memory::ByteValued for bootparam::boot_params {}
+unsafe impl vm_memory::ByteValued for bootparam::setup_data {}
 
 #[allow(dead_code)]
 #[allow(non_upper_case_globals)]
@@ -40,13 +40,13 @@ mod msr_index;
 #[allow(clippy::all)]
 mod mpspec;
 // These mpspec types are only data, reading them from data is a safe initialization.
-unsafe impl data_model::DataInit for mpspec::mpc_bus {}
-unsafe impl data_model::DataInit for mpspec::mpc_cpu {}
-unsafe impl data_model::DataInit for mpspec::mpc_intsrc {}
-unsafe impl data_model::DataInit for mpspec::mpc_ioapic {}
-unsafe impl data_model::DataInit for mpspec::mpc_table {}
-unsafe impl data_model::DataInit for mpspec::mpc_lintsrc {}
-unsafe impl data_model::DataInit for mpspec::mpf_intel {}
+unsafe impl vm_memory::ByteValued for mpspec::mpc_bus {}
+unsafe impl vm_memory::ByteValued for mpspec::mpc_cpu {}
+unsafe impl vm_memory::ByteValued for mpspec::mpc_intsrc {}
+unsafe impl vm_memory::ByteValued for mpspec::mpc_ioapic {}
+unsafe impl vm_memory::ByteValued for mpspec::mpc_table {}
+unsafe impl vm_memory::ByteValued for mpspec::mpc_lintsrc {}
+unsafe impl vm_memory::ByteValued for mpspec::mpf_intel {}
 
 mod cpuid;
 mod gdt;
@@ -63,7 +63,7 @@ use std::io::{self, stdout};
 use std::mem;
 use std::sync::Arc;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryError};
+use vm_memory::{GuestAddress, GuestMemory, Address, Bytes, GuestMemoryMmap, GuestMemoryError};
 
 use crate::bootparam::boot_params;
 use crate::bootparam::E820_RAM;
@@ -203,14 +203,14 @@ fn configure_system(
     params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
     params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
     params.hdr.header = KERNEL_HDR_MAGIC;
-    params.hdr.cmd_line_ptr = cmdline_addr.offset() as u32;
+    params.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
     params.hdr.cmdline_size = cmdline_size as u32;
     params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
     if let Some(setup_data) = setup_data {
-        params.hdr.setup_data = setup_data.offset();
+        params.hdr.setup_data = setup_data.raw_value();
     }
     if let Some((initrd_addr, initrd_size)) = initrd {
-        params.hdr.ramdisk_image = initrd_addr.offset() as u32;
+        params.hdr.ramdisk_image = initrd_addr.raw_value() as u32;
         params.hdr.ramdisk_size = initrd_size as u32;
     }
 
@@ -220,21 +220,21 @@ fn configure_system(
     if mem_end < end_32bit_gap_start {
         add_e820_entry(
             &mut params,
-            kernel_addr.offset() as u64,
+            kernel_addr.raw_value() as u64,
             mem_end.offset_from(kernel_addr) as u64,
             E820_RAM,
         )?;
     } else {
         add_e820_entry(
             &mut params,
-            kernel_addr.offset() as u64,
+            kernel_addr.raw_value() as u64,
             end_32bit_gap_start.offset_from(kernel_addr) as u64,
             E820_RAM,
         )?;
         if mem_end > first_addr_past_32bits {
             add_e820_entry(
                 &mut params,
-                first_addr_past_32bits.offset() as u64,
+                first_addr_past_32bits.raw_value() as u64,
                 mem_end.offset_from(first_addr_past_32bits) as u64,
                 E820_RAM,
             )?;
@@ -246,7 +246,7 @@ fn configure_system(
         .checked_offset(zero_page_addr, mem::size_of::<boot_params>() as u64)
         .ok_or(Error::ZeroPagePastRamEnd)?;
     guest_mem
-        .write_obj_at_addr(params, zero_page_addr)
+        .write_obj(params, zero_page_addr)
         .map_err(|_| Error::ZeroPageSetup)?;
     Ok(())
 }
@@ -279,7 +279,7 @@ fn arch_memory_regions(size: u64) -> Vec<(GuestAddress, u64)> {
     if mem_end < end_32bit_gap_start {
         regions.push((GuestAddress(0), size));
     } else {
-        regions.push((GuestAddress(0), end_32bit_gap_start.offset()));
+        regions.push((GuestAddress(0), end_32bit_gap_start.raw_value()));
         if mem_end > first_addr_past_32bits {
             regions.push((
                 first_addr_past_32bits,
@@ -429,11 +429,11 @@ impl X8664arch {
             let dtb_size = fdt::create_fdt(
                 X86_64_FDT_MAX_SIZE as usize,
                 mem,
-                dtb_start.offset(),
+                dtb_start.raw_value(),
                 android_fstab,
             )
             .map_err(Error::CreateFdt)?;
-            free_addr = dtb_start.offset() + dtb_size as u64;
+            free_addr = dtb_start.raw_value() + dtb_size as u64;
             Some(dtb_start)
         } else {
             None
@@ -690,7 +690,7 @@ impl X8664arch {
             .ok_or(Error::KernelOffsetPastEnd)?;
         regs::setup_regs(
             vcpu,
-            (kernel_end).offset() as u64,
+            (kernel_end).raw_value() as u64,
             BOOT_STACK_POINTER as u64,
             ZERO_PAGE_OFFSET as u64,
         )

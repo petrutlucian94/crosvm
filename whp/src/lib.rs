@@ -453,7 +453,7 @@ impl Vm {
                         index as u32,
                         false,
                         false,
-                        guest_addr.offset() as u64,
+                        guest_addr.raw_value() as u64,
                         size as u64,
                         host_addr as u64,
                     )
@@ -526,7 +526,7 @@ impl Vm {
                 slot,
                 read_only,
                 log_dirty_pages,
-                guest_addr.offset() as u64,
+                guest_addr.raw_value() as u64,
                 mem.size() as u64,
                 mem.as_ptr() as u64,
             )?;
@@ -599,7 +599,7 @@ impl Vm {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_tss_addr(&self, addr: GuestAddress) -> Result<()> {
         // Safe because we know that our file is a VM fd and we verify the return result.
-        let ret = unsafe { ioctl_with_val(self, KVM_SET_TSS_ADDR(), addr.offset() as u64) };
+        let ret = unsafe { ioctl_with_val(self, KVM_SET_TSS_ADDR(), addr.raw_value() as u64) };
         if ret == 0 {
             Ok(())
         } else {
@@ -614,7 +614,7 @@ impl Vm {
     pub fn set_identity_map_addr(&self, addr: GuestAddress) -> Result<()> {
         // Safe because we know that our file is a VM fd and we verify the return result.
         let ret =
-            unsafe { ioctl_with_ref(self, KVM_SET_IDENTITY_MAP_ADDR(), &(addr.offset() as u64)) };
+            unsafe { ioctl_with_ref(self, KVM_SET_IDENTITY_MAP_ADDR(), &(addr.raw_value() as u64)) };
         if ret == 0 {
             Ok(())
         } else {
@@ -1299,8 +1299,8 @@ mod tests {
         let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let vm = Vm::new(&kvm, gm).unwrap();
         let obj_addr = GuestAddress(0xf0);
-        vm.get_memory().write_obj_at_addr(67u8, obj_addr).unwrap();
-        let read_val: u8 = vm.get_memory().read_obj_from_addr(obj_addr).unwrap();
+        vm.get_memory().write_obj(67u8, obj_addr).unwrap();
+        let read_val: u8 = vm.get_memory().read_obj(obj_addr).unwrap();
         assert_eq!(read_val, 67u8);
     }
 

@@ -5,7 +5,9 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use sys_util::{EventFd, GuestMemoryMmap};
+use vm_memory::{GuestMemoryMmap};
+
+use sys_util::{EventFd};
 
 use super::*;
 use crate::pci::{PciBarConfiguration, PciCapability};

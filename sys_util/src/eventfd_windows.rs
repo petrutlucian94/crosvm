@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
 
 use winapi::um::synchapi::{CreateEventA, SetEvent, WaitForSingleObject};
 use winapi::um::winnt::{HANDLE, DUPLICATE_SAME_ACCESS};
@@ -16,6 +16,8 @@ use crate::{errno_result, Result};
 pub struct EventFd {
     eventfd: HANDLE,
 }
+
+unsafe impl Send for EventFd {}
 
 /// We're imitating eventfd behavior using Windows primitives. Note that the
 /// posix module is not using "EFD_SEMAPHORE", so we can just use events.
@@ -94,25 +96,25 @@ impl EventFd {
     }
 }
 
-// impl AsRawFd for EventFd {
-//     fn as_raw_fd(&self) -> RawFd {
-//         self.eventfd.as_raw_fd()
-//     }
-// }
+impl AsRawHandle for EventFd {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.eventfd
+    }
+}
 
-// impl FromRawFd for EventFd {
-//     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-//         EventFd {
-//             eventfd: File::from_raw_fd(fd),
-//         }
-//     }
-// }
+impl FromRawHandle for EventFd {
+    unsafe fn from_raw_handle(fd: RawHandle) -> Self {
+        EventFd {
+            eventfd: fd,
+        }
+    }
+}
 
-// impl IntoRawFd for EventFd {
-//     fn into_raw_fd(self) -> RawFd {
-//         self.eventfd.into_raw_fd()
-//     }
-// }
+impl IntoRawHandle for EventFd {
+    fn into_raw_handle(self) -> RawHandle {
+        self.eventfd
+    }
+}
 
 #[test]
 fn test_event() {

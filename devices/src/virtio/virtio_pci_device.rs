@@ -3,14 +3,15 @@
 // found in the LICENSE file.
 
 use std;
-use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use data_model::{DataInit, Le32};
+use vm_memory::{ByteValued, GuestMemoryMmap};
+
+use vm_memory::endian::{Le32};
 use kvm::Datamatch;
 use resources::{Alloc, SystemAllocator};
-use sys_util::{EventFd, GuestMemoryMmap, Result};
+use sys_util::{EventFd, Result};
 
 use super::*;
 use crate::pci::{
@@ -30,7 +31,7 @@ pub enum PciCapabilityType {
 
 #[allow(dead_code)]
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct VirtioPciCap {
     // _cap_vndr and _cap_next are autofilled based on id() in pci configuration
     _cap_vndr: u8,    // Generic PCI field: PCI_CAP_ID_VNDR
@@ -42,8 +43,8 @@ struct VirtioPciCap {
     offset: Le32,     // Offset within bar.
     length: Le32,     // Length of the structure, in bytes.
 }
-// It is safe to implement DataInit; all members are simple numbers and any value is valid.
-unsafe impl DataInit for VirtioPciCap {}
+// It is safe to implement ByteValued; all members are simple numbers and any value is valid.
+unsafe impl ByteValued for VirtioPciCap {}
 
 impl PciCapability for VirtioPciCap {
     fn bytes(&self) -> &[u8] {
@@ -72,13 +73,13 @@ impl VirtioPciCap {
 
 #[allow(dead_code)]
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct VirtioPciNotifyCap {
     cap: VirtioPciCap,
     notify_off_multiplier: Le32,
 }
-// It is safe to implement DataInit; all members are simple numbers and any value is valid.
-unsafe impl DataInit for VirtioPciNotifyCap {}
+// It is safe to implement ByteValued; all members are simple numbers and any value is valid.
+unsafe impl ByteValued for VirtioPciNotifyCap {}
 
 impl PciCapability for VirtioPciNotifyCap {
     fn bytes(&self) -> &[u8] {

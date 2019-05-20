@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::thread;
 use std::u32;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryError};
+use vm_memory::{Bytes, ByteValued, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryError};
 
 use sync::Mutex;
 use sys_util::Error as SysError;
@@ -24,7 +24,7 @@ use sys_util::{
     PollContext, PollResult, PunchHole, TimerFd, WriteZeroes,
 };
 
-use data_model::{DataInit, Le16, Le32, Le64};
+use vm_memory::endian::{Le16, Le32, Le64};
 
 use super::{
     DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_CONFIG_CHANGED,
@@ -66,7 +66,7 @@ struct virtio_blk_geometry {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_blk_geometry {}
+unsafe impl ByteValued for virtio_blk_geometry {}
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
@@ -78,7 +78,7 @@ struct virtio_blk_topology {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_blk_topology {}
+unsafe impl ByteValued for virtio_blk_topology {}
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
@@ -101,7 +101,7 @@ struct virtio_blk_config {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_blk_config {}
+unsafe impl ByteValued for virtio_blk_config {}
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
@@ -114,7 +114,7 @@ struct virtio_blk_discard_write_zeroes {
 const VIRTIO_BLK_DISCARD_WRITE_ZEROES_FLAG_UNMAP: u32 = 1 << 0;
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_blk_discard_write_zeroes {}
+unsafe impl ByteValued for virtio_blk_discard_write_zeroes {}
 
 pub trait DiskFile: FileSetLen + FileSync + PunchHole + Read + Seek + Write + WriteZeroes {}
 impl<D: FileSetLen + FileSync + PunchHole + Read + Seek + Write + WriteZeroes> DiskFile for D {}
@@ -166,7 +166,7 @@ impl Display for ParseError {
 
         match self {
             GuestMemory(e) => write!(f, "bad guest memory address: {}", e),
-            CheckedOffset(addr, offset) => write!(f, "{}+{} would overflow a usize", addr, offset),
+            CheckedOffset(addr, offset) => write!(f, "{:?}+{} would overflow a usize", addr, offset),
             UnexpectedWriteOnlyDescriptor => write!(f, "unexpected write-only descriptor"),
             UnexpectedReadOnlyDescriptor => write!(f, "unexpected read-only descriptor"),
             DescriptorChainTooShort => write!(f, "descriptor chain too short"),
@@ -180,7 +180,7 @@ fn request_type(
     desc_addr: GuestAddress,
 ) -> result::Result<RequestType, ParseError> {
     let type_ = mem
-        .read_obj_from_addr(desc_addr)
+        .read_obj(desc_addr)
         .map_err(ParseError::GuestMemory)?;
     match type_ {
         VIRTIO_BLK_T_IN => Ok(RequestType::In),
@@ -194,12 +194,12 @@ fn request_type(
 
 fn sector(mem: &GuestMemoryMmap, desc_addr: GuestAddress) -> result::Result<u64, ParseError> {
     const SECTOR_OFFSET: u64 = 8;
-    let addr = match mem.checked_offset(desc_addr, SECTOR_OFFSET) {
+    let addr = match mem.checked_offset(desc_addr, SECTOR_OFFSET as usize) {
         Some(v) => v,
         None => return Err(ParseError::CheckedOffset(desc_addr, SECTOR_OFFSET)),
     };
 
-    mem.read_obj_from_addr(addr)
+    mem.read_obj(addr)
         .map_err(ParseError::GuestMemory)
 }
 
@@ -207,7 +207,7 @@ fn discard_write_zeroes_segment(
     mem: &GuestMemoryMmap,
     seg_addr: GuestAddress,
 ) -> result::Result<virtio_blk_discard_write_zeroes, ParseError> {
-    mem.read_obj_from_addr(seg_addr)
+    mem.read_obj(seg_addr)
         .map_err(ParseError::GuestMemory)
 }
 
@@ -250,7 +250,7 @@ impl Display for ExecuteError {
         use self::ExecuteError::*;
 
         match self {
-            Flush(e) => write!(f, "failed to flush: {}", e),
+            Flush(e) => write!(f, "failed to flush: {:?}", e),
             Read {
                 addr,
                 length,
@@ -258,7 +258,7 @@ impl Display for ExecuteError {
                 guestmemerr,
             } => write!(
                 f,
-                "failed to read {} bytes from sector {} to address {}: {}",
+                "failed to read {:?} bytes from sector {:?} to address {:?}: {:?}",
                 length, sector, addr, guestmemerr,
             ),
             Seek { ioerr, sector } => write!(f, "failed to seek to sector {}: {}", sector, ioerr),
@@ -270,7 +270,7 @@ impl Display for ExecuteError {
                 guestmemerr,
             } => write!(
                 f,
-                "failed to write {} bytes from address {} to sector {}: {}",
+                "failed to write {:?} bytes from address {:?} to sector {}: {}",
                 length, addr, sector, guestmemerr,
             ),
             DiscardWriteZeroes {
@@ -519,7 +519,7 @@ impl Request {
                         ioerr: e,
                         sector: self.sector,
                     })?;
-                mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
+                mem.write_all_to(self.data_addr, disk, self.data_len as usize)
                     .map_err(|e| ExecuteError::Write {
                         addr: self.data_addr,
                         length: self.data_len,
@@ -628,7 +628,7 @@ impl<T: DiskFile> Worker<T> {
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
                     self.mem
-                        .write_obj_at_addr(status, request.status_addr)
+                        .write_obj(status, request.status_addr)
                         .unwrap();
                 }
                 Err(e) => {
@@ -661,17 +661,18 @@ impl<T: DiskFile> Worker<T> {
     fn run(
         &mut self,
         queue_evt: EventFd,
-        kill_evt: EventFd,
+        kill_evt: EventFd
     ) {
-        let poll_ctx = PollContext::new();
+        let mut poll_ctx = PollContext::new();
         poll_ctx.add(queue_evt.as_raw_handle());
-        poll_ctx.add(interrupt_resample_evt.as_raw_handle());
+        poll_ctx.add(self.interrupt_resample_evt.as_raw_handle());
         poll_ctx.add(kill_evt.as_raw_handle());
 
         'poll: loop {
-            let signaled_h = match poll_ctx.wait() {
+            let poll_result = poll_ctx.wait();
+            let signaled_h = match poll_result {
                 PollResult::Signaled(h) => h,
-                _ => panic!(format!("Unexpected poll result {:?}.", result)),
+                _ => panic!(format!("Unexpected poll result {:?}.", poll_result)),
             };
 
             let mut needs_interrupt = false;
@@ -680,7 +681,7 @@ impl<T: DiskFile> Worker<T> {
             if signaled_h == queue_evt.as_raw_handle() {
                 needs_interrupt |= self.process_queue(0);
             }
-            else if signaled_h == interrupt_resample_evt.as_raw_handle() {
+            else if signaled_h == self.interrupt_resample_evt.as_raw_handle() {
                 if self.interrupt_status.load(Ordering::SeqCst) != 0 {
                     self.interrupt_evt.write(1).unwrap();
                 }
@@ -770,7 +771,7 @@ impl<T: DiskFile> Drop for Block<T> {
     }
 }
 
-impl<T: 'static + AsRawFd + DiskFile + Send> VirtioDevice for Block<T> {
+impl<T: 'static + DiskFile + Send> VirtioDevice for Block<T> {
     fn features(&self) -> u64 {
         self.avail_features
     }

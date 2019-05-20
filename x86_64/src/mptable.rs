@@ -11,7 +11,7 @@ use std::slice;
 use libc::c_char;
 
 use devices::PciInterruptPin;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestMemory, GuestAddress, GuestMemoryMmap};
 
 use crate::mpspec::*;
 
@@ -144,9 +144,9 @@ pub fn setup_mptable(
         mpf_intel.signature = SMP_MAGIC_IDENT;
         mpf_intel.length = 1;
         mpf_intel.specification = 4;
-        mpf_intel.physptr = (base_mp.offset() + mem::size_of::<mpf_intel>() as u64) as u32;
+        mpf_intel.physptr = (base_mp.raw_value() + mem::size_of::<mpf_intel>() as u64) as u32;
         mpf_intel.checksum = mpf_intel_compute_checksum(&mpf_intel);
-        mem.write_obj_at_addr(mpf_intel, base_mp)
+        mem.write_obj(mpf_intel, base_mp)
             .map_err(|_| Error::WriteMpfIntel)?;
         base_mp = base_mp.unchecked_add(size as u64);
     }
@@ -173,7 +173,7 @@ pub fn setup_mptable(
             };
         mpc_cpu.cpufeature = CPU_STEPPING;
         mpc_cpu.featureflag = CPU_FEATURE_APIC | CPU_FEATURE_FPU;
-        mem.write_obj_at_addr(mpc_cpu, base_mp)
+        mem.write_obj(mpc_cpu, base_mp)
             .map_err(|_| Error::WriteMpcCpu)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_cpu));
@@ -186,7 +186,7 @@ pub fn setup_mptable(
         mpc_ioapic.apicver = APIC_VERSION;
         mpc_ioapic.flags = MPC_APIC_USABLE as u8;
         mpc_ioapic.apicaddr = IO_APIC_DEFAULT_PHYS_BASE;
-        mem.write_obj_at_addr(mpc_ioapic, base_mp)
+        mem.write_obj(mpc_ioapic, base_mp)
             .map_err(|_| Error::WriteMpcIoapic)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_ioapic));
@@ -197,7 +197,7 @@ pub fn setup_mptable(
         mpc_bus.type_ = MP_BUS as u8;
         mpc_bus.busid = PCI_BUS_ID;
         mpc_bus.bustype = BUS_TYPE_PCI;
-        mem.write_obj_at_addr(mpc_bus, base_mp)
+        mem.write_obj(mpc_bus, base_mp)
             .map_err(|_| Error::WriteMpcBus)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_bus));
@@ -208,7 +208,7 @@ pub fn setup_mptable(
         mpc_bus.type_ = MP_BUS as u8;
         mpc_bus.busid = ISA_BUS_ID;
         mpc_bus.bustype = BUS_TYPE_ISA;
-        mem.write_obj_at_addr(mpc_bus, base_mp)
+        mem.write_obj(mpc_bus, base_mp)
             .map_err(|_| Error::WriteMpcBus)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_bus));
@@ -223,7 +223,7 @@ pub fn setup_mptable(
         mpc_intsrc.srcbusirq = 0;
         mpc_intsrc.dstapic = 0;
         mpc_intsrc.dstirq = 0;
-        mem.write_obj_at_addr(mpc_intsrc, base_mp)
+        mem.write_obj(mpc_intsrc, base_mp)
             .map_err(|_| Error::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc));
@@ -239,7 +239,7 @@ pub fn setup_mptable(
         mpc_intsrc.srcbusirq = i;
         mpc_intsrc.dstapic = ioapicid;
         mpc_intsrc.dstirq = i;
-        mem.write_obj_at_addr(mpc_intsrc, base_mp)
+        mem.write_obj(mpc_intsrc, base_mp)
             .map_err(|_| Error::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc));
@@ -255,7 +255,7 @@ pub fn setup_mptable(
         mpc_intsrc.srcbusirq = (pci_irq.0 as u8 + 1) << 2 | pci_irq.1.to_mask() as u8;
         mpc_intsrc.dstapic = ioapicid;
         mpc_intsrc.dstirq = 5 + i as u8;
-        mem.write_obj_at_addr(mpc_intsrc, base_mp)
+        mem.write_obj(mpc_intsrc, base_mp)
             .map_err(|_| Error::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc));
@@ -271,7 +271,7 @@ pub fn setup_mptable(
         mpc_intsrc.srcbusirq = i as u8;
         mpc_intsrc.dstapic = ioapicid;
         mpc_intsrc.dstirq = i as u8;
-        mem.write_obj_at_addr(mpc_intsrc, base_mp)
+        mem.write_obj(mpc_intsrc, base_mp)
             .map_err(|_| Error::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc));
@@ -286,7 +286,7 @@ pub fn setup_mptable(
         mpc_lintsrc.srcbusirq = 0;
         mpc_lintsrc.destapic = 0;
         mpc_lintsrc.destapiclint = 0;
-        mem.write_obj_at_addr(mpc_lintsrc, base_mp)
+        mem.write_obj(mpc_lintsrc, base_mp)
             .map_err(|_| Error::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc));
@@ -301,7 +301,7 @@ pub fn setup_mptable(
         mpc_lintsrc.srcbusirq = 0;
         mpc_lintsrc.destapic = 0xFF; // Per SeaBIOS
         mpc_lintsrc.destapiclint = 1;
-        mem.write_obj_at_addr(mpc_lintsrc, base_mp)
+        mem.write_obj(mpc_lintsrc, base_mp)
             .map_err(|_| Error::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size as u64);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc));
@@ -320,7 +320,7 @@ pub fn setup_mptable(
         mpc_table.lapic = APIC_DEFAULT_PHYS_BASE;
         checksum = checksum.wrapping_add(compute_checksum(&mpc_table));
         mpc_table.checksum = (!checksum).wrapping_add(1) as i8;
-        mem.write_obj_at_addr(mpc_table, table_base)
+        mem.write_obj(mpc_table, table_base)
             .map_err(|_| Error::WriteMpcTable)?;
     }
 
@@ -380,7 +380,7 @@ mod tests {
 
         setup_mptable(&mem, num_cpus, Vec::new()).unwrap();
 
-        let mpf_intel = mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
 
         assert_eq!(mpf_intel_compute_checksum(&mpf_intel), mpf_intel.checksum);
     }
@@ -396,9 +396,9 @@ mod tests {
 
         setup_mptable(&mem, num_cpus, Vec::new()).unwrap();
 
-        let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel: mpf_intel = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
         let mpc_offset = GuestAddress(mpf_intel.physptr as u64);
-        let mpc_table: mpc_table = mem.read_obj_from_addr(mpc_offset).unwrap();
+        let mpc_table: mpc_table = mem.read_obj(mpc_offset).unwrap();
 
         struct Sum(u8);
         impl io::Write for Sum {
@@ -431,9 +431,9 @@ mod tests {
         for i in 0..MAX_CPUS {
             setup_mptable(&mem, i, Vec::new()).unwrap();
 
-            let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+            let mpf_intel: mpf_intel = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
             let mpc_offset = GuestAddress(mpf_intel.physptr as u64);
-            let mpc_table: mpc_table = mem.read_obj_from_addr(mpc_offset).unwrap();
+            let mpc_table: mpc_table = mem.read_obj(mpc_offset).unwrap();
             let mpc_end = mpc_offset.checked_add(mpc_table.length as u64).unwrap();
 
             let mut entry_offset = mpc_offset
@@ -441,7 +441,7 @@ mod tests {
                 .unwrap();
             let mut cpu_count = 0;
             while entry_offset < mpc_end {
-                let entry_type: u8 = mem.read_obj_from_addr(entry_offset).unwrap();
+                let entry_type: u8 = mem.read_obj(entry_offset).unwrap();
                 entry_offset = entry_offset
                     .checked_add(table_entry_size(entry_type) as u64)
                     .unwrap();

@@ -7,9 +7,7 @@ use std::mem;
 use std::result;
 use std::slice;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-use data_model::DataInit;
+use vm_memory::{Bytes, Address, ByteValued, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum Error {
@@ -78,7 +76,7 @@ pub struct Smbios30Entrypoint {
     pub max_size: u32,
     pub physptr: u64,
 }
-unsafe impl data_model::DataInit for Smbios30Entrypoint {}
+unsafe impl ByteValued for Smbios30Entrypoint {}
 
 impl Clone for Smbios30Entrypoint {
     fn clone(&self) -> Self {
@@ -108,7 +106,7 @@ impl Clone for SmbiosBiosInfo {
     }
 }
 
-unsafe impl data_model::DataInit for SmbiosBiosInfo {}
+unsafe impl ByteValued for SmbiosBiosInfo {}
 
 #[repr(packed)]
 #[derive(Default, Copy)]
@@ -132,14 +130,14 @@ impl Clone for SmbiosSysInfo {
     }
 }
 
-unsafe impl data_model::DataInit for SmbiosSysInfo {}
+unsafe impl ByteValued for SmbiosSysInfo {}
 
-fn write_and_incr<T: DataInit>(
+fn write_and_incr<T: ByteValued>(
     mem: &GuestMemoryMmap,
     val: T,
     mut curptr: GuestAddress,
 ) -> Result<GuestAddress> {
-    mem.write_obj_at_addr(val, curptr)
+    mem.write_obj(val, curptr)
         .map_err(|_| Error::WriteData)?;
     curptr = curptr
         .checked_add(mem::size_of::<T>() as u64)
@@ -202,9 +200,9 @@ pub fn setup_smbios(mem: &GuestMemoryMmap) -> Result<()> {
         smbios_ep.docrev = 0x00;
         smbios_ep.revision = 0x01; // SMBIOS 3.0
         smbios_ep.max_size = curptr.offset_from(physptr) as u32;
-        smbios_ep.physptr = physptr.offset();
+        smbios_ep.physptr = physptr.raw_value();
         smbios_ep.checksum = compute_checksum(&smbios_ep);
-        mem.write_obj_at_addr(smbios_ep, GuestAddress(SMBIOS_START))
+        mem.write_obj(smbios_ep, GuestAddress(SMBIOS_START))
             .map_err(|_| Error::WriteSmbiosEp)?;
     }
 
@@ -241,7 +239,7 @@ mod tests {
         setup_smbios(&mem).unwrap();
 
         let smbios_ep: Smbios30Entrypoint =
-            mem.read_obj_from_addr(GuestAddress(SMBIOS_START)).unwrap();
+            mem.read_obj(GuestAddress(SMBIOS_START)).unwrap();
 
         assert_eq!(compute_checksum(&smbios_ep), 0);
     }

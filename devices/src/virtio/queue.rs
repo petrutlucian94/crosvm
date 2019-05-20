@@ -6,7 +6,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::{Bytes, Address, GuestMemory, GuestAddress, GuestMemoryMmap};
 
 use sys_util::{error};
 
@@ -82,18 +82,18 @@ impl<'a> DescriptorChain<'a> {
             return None;
         }
 
-        let desc_head = match mem.checked_offset(desc_table, (index as u64) * 16) {
+        let desc_head = match mem.checked_offset(desc_table, (index as usize) * 16) {
             Some(a) => a,
             None => return None,
         };
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let addr = GuestAddress(mem.read_obj_from_addr::<u64>(desc_head).unwrap() as u64);
+        let addr = GuestAddress(mem.read_obj::<u64>(desc_head).unwrap() as u64);
         if mem.checked_offset(desc_head, 16).is_none() {
             return None;
         }
-        let len: u32 = mem.read_obj_from_addr(desc_head.unchecked_add(8)).unwrap();
-        let flags: u16 = mem.read_obj_from_addr(desc_head.unchecked_add(12)).unwrap();
-        let next: u16 = mem.read_obj_from_addr(desc_head.unchecked_add(14)).unwrap();
+        let len: u32 = mem.read_obj(desc_head.unchecked_add(8)).unwrap();
+        let flags: u16 = mem.read_obj(desc_head.unchecked_add(12)).unwrap();
+        let next: u16 = mem.read_obj(desc_head.unchecked_add(14)).unwrap();
         let chain = DescriptorChain {
             mem,
             desc_table,
@@ -117,7 +117,7 @@ impl<'a> DescriptorChain<'a> {
     fn is_valid(&self) -> bool {
         if self
             .mem
-            .checked_offset(self.addr, self.len as u64)
+            .checked_offset(self.addr, self.len as usize)
             .is_none()
         {
             false
@@ -192,12 +192,12 @@ impl<'a, 'b> Iterator for AvailIter<'a, 'b> {
         }
 
         let offset = (4 + (self.next_index.0 % self.queue_size) * 2) as usize;
-        let avail_addr = match self.mem.checked_offset(self.avail_ring, offset as u64) {
+        let avail_addr = match self.mem.checked_offset(self.avail_ring, offset) {
             Some(a) => a,
             None => return None,
         };
         // This index is checked below in checked_new
-        let desc_index: u16 = self.mem.read_obj_from_addr(avail_addr).unwrap();
+        let desc_index: u16 = self.mem.read_obj(avail_addr).unwrap();
 
         self.next_index += Wrapping(1);
 
@@ -277,7 +277,7 @@ impl Queue {
         {
             error!(
                 "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                desc_table.offset(),
+                desc_table.raw_value(),
                 desc_table_size
             );
             false
@@ -287,7 +287,7 @@ impl Queue {
         {
             error!(
                 "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                avail_ring.offset(),
+                avail_ring.raw_value(),
                 avail_ring_size
             );
             false
@@ -297,7 +297,7 @@ impl Queue {
         {
             error!(
                 "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                used_ring.offset(),
+                used_ring.raw_value(),
                 used_ring_size
             );
             false
@@ -324,7 +324,7 @@ impl Queue {
 
         let index_addr = mem.checked_offset(avail_ring, 2).unwrap();
         // Note that last_index has no invalid values
-        let last_index: u16 = mem.read_obj_from_addr::<u16>(index_addr).unwrap();
+        let last_index: u16 = mem.read_obj::<u16>(index_addr).unwrap();
         let queue_len = Wrapping(last_index) - self.next_avail;
 
         if queue_len.0 > queue_size {
@@ -365,8 +365,8 @@ impl Queue {
         let used_elem = used_ring.unchecked_add((4 + next_used * 8) as u64);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj_at_addr(desc_index as u32, used_elem).unwrap();
-        mem.write_obj_at_addr(len as u32, used_elem.unchecked_add(4))
+        mem.write_obj(desc_index as u32, used_elem).unwrap();
+        mem.write_obj(len as u32, used_elem.unchecked_add(4))
             .unwrap();
 
         self.next_used += Wrapping(1);
@@ -374,7 +374,7 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        mem.write_obj_at_addr(self.next_used.0 as u16, used_ring.unchecked_add(2))
+        mem.write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
     }
 }

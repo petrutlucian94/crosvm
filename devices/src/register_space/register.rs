@@ -9,7 +9,7 @@ use std::mem::size_of;
 use std::sync::{Arc, MutexGuard};
 use sync::Mutex;
 
-use data_model::DataInit;
+use vm_memory::ByteValued;
 use sys_util::error;
 
 /// Type of offset in the register space.
@@ -60,7 +60,7 @@ pub trait RegisterValue:
     'static
     + Into<u64>
     + Clone
-    + DataInit
+    + ByteValued
     + std::ops::BitOr<Self, Output = Self>
     + std::ops::BitAnd<Self, Output = Self>
     + std::ops::Not<Output = Self>

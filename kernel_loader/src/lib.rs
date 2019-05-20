@@ -208,19 +208,19 @@ mod test {
                 CStr::from_bytes_with_nul(b"1234\0").unwrap()
             )
         );
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, '1' as u8);
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, '2' as u8);
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, '3' as u8);
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, '4' as u8);
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, '\0' as u8);
     }
 

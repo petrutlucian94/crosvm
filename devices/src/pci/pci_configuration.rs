@@ -511,7 +511,7 @@ impl PciBarConfiguration {
 
 #[cfg(test)]
 mod tests {
-    use data_model::DataInit;
+    use vm_memory::ByteValued;
 
     use super::*;
 
@@ -525,8 +525,8 @@ mod tests {
         foo: u8,
     }
 
-    // It is safe to implement DataInit; all members are simple numbers and any value is valid.
-    unsafe impl DataInit for TestCap {}
+    // It is safe to implement ByteValued; all members are simple numbers and any value is valid.
+    unsafe impl ByteValued for TestCap {}
 
     impl PciCapability for TestCap {
         fn bytes(&self) -> &[u8] {
