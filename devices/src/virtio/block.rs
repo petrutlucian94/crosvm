@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+
 use std::cmp;
 use std::fmt::{self, Display};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem::{size_of, size_of_val};
-use std::os::unix::io::{AsRawFd, RawFd};
+// use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::windows::io::{AsRawHandle};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -20,7 +22,7 @@ use sys_util::Error as SysError;
 use sys_util::Result as SysResult;
 use sys_util::{
     error, info, warn, EventFd, FileSetLen, FileSync,
-    PollContext, PollToken, PunchHole, TimerFd, WriteZeroes,
+    PollContext, PollResult, PunchHole, TimerFd, WriteZeroes,
 };
 
 use data_model::{DataInit, Le16, Le32, Le64};
@@ -662,58 +664,32 @@ impl<T: DiskFile> Worker<T> {
         queue_evt: EventFd,
         kill_evt: EventFd,
     ) {
-        #[derive(PollToken)]
-        enum Token {
-            QueueAvailable,
-            InterruptResample,
-            Kill,
-        }
-
-        let poll_ctx: PollContext<Token> = match PollContext::new()
-            .and_then(|pc| pc.add(&queue_evt, Token::QueueAvailable).and(Ok(pc)))
-            .and_then(|pc| {
-                pc.add(&self.interrupt_resample_evt, Token::InterruptResample)
-                    .and(Ok(pc))
-            })
-            .and_then(|pc| pc.add(&kill_evt, Token::Kill).and(Ok(pc)))
-        {
-            Ok(pc) => pc,
-            Err(e) => {
-                error!("failed creating PollContext: {}", e);
-                return;
-            }
-        };
+        let poll_ctx = PollContext::new();
+        poll_ctx.add(queue_evt.as_raw_handle());
+        poll_ctx.add(interrupt_resample_evt.as_raw_handle());
+        poll_ctx.add(kill_evt.as_raw_handle());
 
         'poll: loop {
-            let events = match poll_ctx.wait() {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("failed polling for events: {}", e);
-                    break;
-                }
+            let signaled_h = match poll_ctx.wait() {
+                PollResult::Signaled(h) => h,
+                _ => panic!(format!("Unexpected poll result {:?}.", result)),
             };
 
             let mut needs_interrupt = false;
             let mut needs_config_interrupt = false;
-            for event in events.iter_readable() {
-                match event.token() {
-                    Token::QueueAvailable => {
-                        if let Err(e) = queue_evt.read() {
-                            error!("failed reading queue EventFd: {}", e);
-                            break 'poll;
-                        }
-                        needs_interrupt |=
-                            self.process_queue(0);
-                    }
-                    Token::InterruptResample => {
-                        let _ = self.interrupt_resample_evt.read();
-                        if self.interrupt_status.load(Ordering::SeqCst) != 0 {
-                            self.interrupt_evt.write(1).unwrap();
-                        }
-                    }
-                    Token::Kill => break 'poll,
+
+            if signaled_h == queue_evt.as_raw_handle() {
+                needs_interrupt |= self.process_queue(0);
+            }
+            else if signaled_h == interrupt_resample_evt.as_raw_handle() {
+                if self.interrupt_status.load(Ordering::SeqCst) != 0 {
+                    self.interrupt_evt.write(1).unwrap();
                 }
             }
+            else if signaled_h == kill_evt.as_raw_handle() {
+                break 'poll;
+            }
+
             if needs_interrupt {
                 self.signal_used_queue();
             }

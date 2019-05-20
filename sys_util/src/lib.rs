@@ -27,6 +27,7 @@ mod eventfd_unix;
 #[cfg(windows)]
 mod eventfd_windows;
 
+mod poll;
 mod file_traits;
 #[cfg(unix)]
 mod raw_fd;
@@ -54,6 +55,7 @@ use crate::eventfd_windows as eventfd;
 pub use errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
+pub use poll::{PollContext, PollResult};
 #[cfg(unix)]
 pub use crate::raw_fd::*;
 pub use crate::struct_util::*;
