@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use libc::{gmtime_r, time, time_t, tm};
-use std::mem;
+use chrono::{Datelike, Timelike, Utc};
 
 use crate::BusDevice;
 
@@ -58,39 +57,16 @@ impl BusDevice for Cmos {
         data[0] = match offset {
             INDEX_OFFSET => self.index,
             DATA_OFFSET => {
-                let seconds;
-                let minutes;
-                let hours;
-                let week_day;
-                let day;
-                let month;
-                let year;
-                // The time and gmtime_r calls are safe as long as the structs they are given are
-                // large enough, and neither of them fail. It is safe to zero initialize the tm
-                // struct because it contains only plain data.
-                unsafe {
-                    let mut tm: tm = mem::zeroed();
-                    let mut now: time_t = 0;
-                    time(&mut now as *mut _);
-                    gmtime_r(&now, &mut tm as *mut _);
-                    // The following lines of code are safe but depend on tm being in scope.
-                    seconds = tm.tm_sec;
-                    minutes = tm.tm_min;
-                    hours = tm.tm_hour;
-                    week_day = tm.tm_wday + 1;
-                    day = tm.tm_mday;
-                    month = tm.tm_mon + 1;
-                    year = tm.tm_year;
-                };
+                let now = Utc::now();
                 match self.index {
-                    0x00 => to_bcd(seconds as u8),
-                    0x02 => to_bcd(minutes as u8),
-                    0x04 => to_bcd(hours as u8),
-                    0x06 => to_bcd(week_day as u8),
-                    0x07 => to_bcd(day as u8),
-                    0x08 => to_bcd(month as u8),
-                    0x09 => to_bcd((year % 100) as u8),
-                    0x32 => to_bcd(((year + 1900) / 100) as u8),
+                    0x00 => to_bcd(now.second() as u8),
+                    0x02 => to_bcd(now.minute() as u8),
+                    0x04 => to_bcd(now.hour() as u8),
+                    0x06 => to_bcd(now.weekday() as u8),
+                    0x07 => to_bcd(now.day() as u8),
+                    0x08 => to_bcd(now.month() as u8),
+                    0x09 => to_bcd((now.year() % 100) as u8),
+                    0x32 => to_bcd(((now.year() + 1900) / 100) as u8),
                     _ => {
                         // self.index is always guaranteed to be in range via INDEX_MASK.
                         self.data[(self.index & INDEX_MASK) as usize]

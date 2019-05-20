@@ -5,6 +5,7 @@ authors = ["The Chromium OS Authors"]
 edition = "2018"
 
 [dependencies]
+chrono = "0.4.6"
 bit_field = { path = "../bit_field" }
 byteorder = "*"
 data_model = { path = "../data_model" }
