@@ -6,7 +6,6 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use std;
 use std::fmt::{self, Display};
-use std::os::unix::io::RawFd;
 
 use kvm::Datamatch;
 use resources::{Error as SystemAllocatorFaliure, SystemAllocator};
@@ -50,9 +49,6 @@ pub trait PciDevice: Send {
     fn debug_label(&self) -> String;
     /// Assign a unique bus and device number to this device.
     fn assign_bus_dev(&mut self, _bus: u8, _device: u8 /*u5*/) {}
-    /// A vector of device-specific file descriptors that must be kept open
-    /// after jailing. Must be called before the process is jailed.
-    fn keep_fds(&self) -> Vec<RawFd>;
     /// Assign a legacy PCI IRQ to this device.
     /// The device may write to `irq_evt` to trigger an interrupt.
     /// When `irq_resample_evt` is signaled, the device should re-assert `irq_evt` if necessary.
@@ -153,9 +149,6 @@ impl<T: PciDevice + ?Sized> PciDevice for Box<T> {
     }
     fn assign_bus_dev(&mut self, bus: u8, device: u8 /*u5*/) {
         (**self).assign_bus_dev(bus, device)
-    }
-    fn keep_fds(&self) -> Vec<RawFd> {
-        (**self).keep_fds()
     }
     fn assign_irq(
         &mut self,

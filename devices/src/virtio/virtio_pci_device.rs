@@ -306,17 +306,6 @@ impl PciDevice for VirtioPciDevice {
         self.pci_bus_dev = Some((bus, device));
     }
 
-    fn keep_fds(&self) -> Vec<RawFd> {
-        let mut fds = self.device.keep_fds();
-        if let Some(interrupt_evt) = &self.interrupt_evt {
-            fds.push(interrupt_evt.as_raw_fd());
-        }
-        if let Some(interrupt_resample_evt) = &self.interrupt_resample_evt {
-            fds.push(interrupt_resample_evt.as_raw_fd());
-        }
-        fds
-    }
-
     fn assign_irq(
         &mut self,
         irq_evt: EventFd,

@@ -5,7 +5,6 @@
 
 use std::fmt::{self, Display};
 use std::io::Error as IoError;
-use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;

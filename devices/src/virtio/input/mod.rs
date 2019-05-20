@@ -596,13 +596,6 @@ impl<T> VirtioDevice for Input<T>
 where
     T: 'static + EventSource + Send,
 {
-    fn keep_fds(&self) -> Vec<RawFd> {
-        if let Some(source) = &self.source {
-            return vec![source.as_raw_fd()];
-        }
-        Vec::new()
-    }
-
     fn device_type(&self) -> u32 {
         TYPE_INPUT
     }

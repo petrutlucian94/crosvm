@@ -7,7 +7,6 @@ use std::cmp;
 use std::fmt::{self, Display};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem::{size_of, size_of_val};
-// use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::windows::io::{AsRawHandle};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -772,16 +771,6 @@ impl<T: DiskFile> Drop for Block<T> {
 }
 
 impl<T: 'static + AsRawFd + DiskFile + Send> VirtioDevice for Block<T> {
-    fn keep_fds(&self) -> Vec<RawFd> {
-        let mut keep_fds = Vec::new();
-
-        if let Some(disk_image) = &self.disk_image {
-            keep_fds.push(disk_image.as_raw_fd());
-        }
-
-        keep_fds
-    }
-
     fn features(&self) -> u64 {
         self.avail_features
     }

@@ -236,9 +236,6 @@ mod tests {
     const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
     const DUMMY_FEATURES: u64 = 0x5555_aaaa;
     impl VirtioDevice for DummyDevice {
-        fn keep_fds(&self) -> Vec<RawFd> {
-            Vec::new()
-        }
         fn device_type(&self) -> u32 {
             return self.0;
         }

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use std::os::unix::io::RawFd;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -26,10 +25,6 @@ pub trait VirtioDevice: Send {
             None => format!("virtio (type {})", self.device_type()),
         }
     }
-
-    /// A vector of device-specific file descriptors that must be kept open
-    /// after jailing. Must be called before the process is jailed.
-    fn keep_fds(&self) -> Vec<RawFd>;
 
     /// The virtio device type.
     fn device_type(&self) -> u32;

@@ -149,9 +149,6 @@ pub fn generate_pci_root(
         // Only support one bus.
         device.assign_bus_dev(0, dev_idx as u8);
 
-        let mut keep_fds = device.keep_fds();
-        // syslog::push_fds(&mut keep_fds);
-
         let irqfd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_resample_fd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_num = resources
@@ -166,8 +163,6 @@ pub fn generate_pci_root(
         };
         vm.register_irqfd_resample(&irqfd, &irq_resample_fd, irq_num)
             .map_err(DeviceRegistrationError::RegisterIrqfd)?;
-        keep_fds.push(irqfd.as_raw_fd());
-        keep_fds.push(irq_resample_fd.as_raw_fd());
         device.assign_irq(irqfd, irq_resample_fd, irq_num, pci_irq_pin);
         pci_irqs.push((dev_idx as u32, pci_irq_pin));
 
@@ -184,7 +179,6 @@ pub fn generate_pci_root(
             let io_addr = IoeventAddress::Mmio(addr);
             vm.register_ioevent(&event, io_addr, datamatch)
                 .map_err(DeviceRegistrationError::RegisterIoevent)?;
-            keep_fds.push(event.as_raw_fd());
         }
         // TODO(lpetrut): we can most probably drop this as well.
         device.on_sandboxed();
