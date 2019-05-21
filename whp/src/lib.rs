@@ -109,15 +109,15 @@ pub fn dirty_log_bitmap_size(size: usize) -> usize {
 
 /// A wrapper around opening and using `/dev/kvm`.
 ///
-/// Useful for querying extensions and basic values from the KVM backend. A `Kvm` is required to
+/// Useful for querying extensions and basic values from the KVM backend. A `WhpManager` is required to
 /// create a `Vm` object.
-pub struct Kvm {
-    kvm: File,
+pub struct WhpManager {
+    whp: File,
 }
 
-impl Kvm {
-    /// Opens `/dev/kvm/` and returns a Kvm object on success.
-    pub fn new() -> Result<Kvm> {
+impl WhpManager {
+    /// Opens `/dev/kvm/` and returns a WhpManager object on success.
+    pub fn new() -> Result<WhpManager> {
         panic!("Not Implemented")
     }
 
@@ -157,7 +157,7 @@ impl Kvm {
     }
 }
 
-// impl AsRawFd for Kvm {
+// impl AsRawFd for WhpManager {
 //     fn as_raw_fd(&self) -> RawFd {
 //         self.kvm.as_raw_fd()
 //     }
@@ -298,7 +298,7 @@ impl Vm {
 
     /// Checks if a particular `Cap` is available.
     ///
-    /// This is distinct from the `Kvm` version of this method because the some extensions depend on
+    /// This is distinct from the `WhpManager` version of this method because the some extensions depend on
     /// the particular `Vm` existence. This method is encouraged by the kernel because it more
     /// accurately reflects the usable capabilities.
     pub fn check_extension(&self, c: Cap) -> bool {
@@ -588,7 +588,7 @@ impl Vm {
 }
 
 pub trait VcpuExtra {
-    fn new(id: c_ulong, kvm: &Kvm, vm: &Vm) -> Result<Self> where Self: Sized;
+    fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<Self> where Self: Sized;
     fn get_memory(&self) -> &GuestMemoryMmap;
     fn set_data(&self, data: &[u8]) -> Result<()>;
     fn get_debugregs(&self) -> Result<DebugRegisters>;
@@ -608,7 +608,7 @@ impl VcpuExtra for VirtualProcessor {
     /// Constructs a new VCPU for `vm`.
     ///
     /// The `id` argument is the CPU number between [0, max vcpus).
-    fn new(id: c_ulong, kvm: &Kvm, vm: &Vm) -> Result<VirtualProcessor> {
+    fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<VirtualProcessor> {
         unimplemented!();
     }
 

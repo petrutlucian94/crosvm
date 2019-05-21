@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use std;
 use std::fmt::{self, Display};
 
-use kvm::Datamatch;
+use whp::Datamatch;
 use resources::{Error as SystemAllocatorFaliure, SystemAllocator};
 use sys_util::EventFd;
 

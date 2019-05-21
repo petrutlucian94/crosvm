@@ -9,13 +9,18 @@ chrono = "0.4.6"
 bit_field = { path = "../bit_field" }
 byteorder = "*"
 enumn = { path = "../enumn" }
-kvm = { path = "../kvm" }
 libc = "*"
 remain = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
 vm_control = { path = "../vm_control" }
+
+[target.'cfg(unix)'.dependencies]
+kvm = { path = "../kvm" }
+
+[target.'cfg(windows)'.dependencies]
+whp = { path = "../whp" }
 
 [dependencies.vm-memory]
 path = "../vm-memory"

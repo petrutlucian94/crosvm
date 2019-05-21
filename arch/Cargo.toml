@@ -8,11 +8,17 @@ edition = "2018"
 byteorder = "*"
 devices = { path = "../devices" }
 kernel_cmdline = { path = "../kernel_cmdline" }
-kvm = { path = "../kvm" }
 libc = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
+
+[target.'cfg(unix)'.dependencies]
+kvm = { path = "../kvm" }
+
+[target.'cfg(windows)'.dependencies]
+whp = { path = "../whp" }
+libwhp = { path = "../libwhp" }
 
 [dependencies.vm-memory]
 path = "../vm-memory"

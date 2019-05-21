@@ -85,7 +85,7 @@ pub struct Ioapic {
     // one of its interrupts is being coalesced.
     rtc_remote_irr: bool,
     current_interrupt_level_bitmap: u32,
-    redirect_table: [RedirectionTableEntry; kvm::NUM_IOAPIC_PINS],
+    redirect_table: [RedirectionTableEntry; whp::NUM_IOAPIC_PINS],
     // IOREGSEL is technically 32 bits, but only bottom 8 are writable: all others are fixed to 0.
     ioregsel: u8,
 }
@@ -152,7 +152,7 @@ impl Ioapic {
     pub fn new() -> Ioapic {
         let mut entry = RedirectionTableEntry::new();
         entry.set_interrupt_mask(true);
-        let entries = [entry; kvm::NUM_IOAPIC_PINS];
+        let entries = [entry; whp::NUM_IOAPIC_PINS];
         Ioapic {
             id: 0,
             rtc_remote_irr: false,
@@ -170,7 +170,7 @@ impl Ioapic {
             self.rtc_remote_irr = false;
         }
 
-        for i in 0..kvm::NUM_IOAPIC_PINS {
+        for i in 0..whp::NUM_IOAPIC_PINS {
             if self.redirect_table[i].get_vector() == vector
                 && self.redirect_table[i].get_trigger_mode() == TriggerMode::Level
             {
@@ -247,7 +247,7 @@ impl Ioapic {
                     return;
                 }
                 let (index, is_high_bits) = decode_irq_from_selector(self.ioregsel);
-                if index >= kvm::NUM_IOAPIC_PINS {
+                if index >= whp::NUM_IOAPIC_PINS {
                     // Invalid write; ignore.
                     return;
                 }
@@ -294,7 +294,7 @@ impl Ioapic {
                     0
                 } else {
                     let (index, is_high_bits) = decode_irq_from_selector(self.ioregsel);
-                    if index < kvm::NUM_IOAPIC_PINS {
+                    if index < whp::NUM_IOAPIC_PINS {
                         let offset = if is_high_bits { 32 } else { 0 };
                         self.redirect_table[index].get(offset, 32) as u32
                     } else {
@@ -314,7 +314,7 @@ mod tests {
     const DEFAULT_DESTINATION_ID: u8 = 0x5f;
 
     fn set_up(trigger: TriggerMode) -> (Ioapic, usize) {
-        let irq = kvm::NUM_IOAPIC_PINS - 1;
+        let irq = whp::NUM_IOAPIC_PINS - 1;
         let ioapic = set_up_with_irq(irq, trigger);
         (ioapic, irq)
     }
@@ -443,7 +443,7 @@ mod tests {
     #[should_panic(expected = "index out of bounds: the len is 24 but the index is 24")]
     fn service_invalid_irq() {
         let mut ioapic = Ioapic::new();
-        ioapic.service_irq(kvm::NUM_IOAPIC_PINS, false);
+        ioapic.service_irq(whp::NUM_IOAPIC_PINS, false);
     }
 
     // Test a level triggered IRQ interrupt.

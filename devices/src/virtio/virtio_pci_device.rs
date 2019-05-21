@@ -9,7 +9,7 @@ use std::sync::Arc;
 use vm_memory::{ByteValued, GuestMemoryMmap};
 
 use vm_memory::endian::{Le32};
-use kvm::Datamatch;
+use whp::Datamatch;
 use resources::{Alloc, SystemAllocator};
 use sys_util::{EventFd, Result};
 

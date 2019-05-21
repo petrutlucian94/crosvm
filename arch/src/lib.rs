@@ -17,7 +17,8 @@ use devices::{
     Bus, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
     Serial,
 };
-use kvm::{IoeventAddress, Kvm, Vcpu, Vm};
+use whp::{IoeventAddress, WhpManager, Vm};
+use libwhp::{VirtualProcessor};
 use resources::SystemAllocator;
 use sync::Mutex;
 use sys_util::{EventFd};
@@ -36,11 +37,11 @@ pub struct VmComponents {
 /// Holds the elements needed to run a Linux VM. Created by `build_vm`.
 pub struct RunnableLinuxVm {
     pub vm: Vm,
-    pub kvm: Kvm,
+    pub whp: WhpManager,
     pub resources: SystemAllocator,
     pub stdio_serial: Arc<Mutex<Serial>>,
     pub exit_evt: EventFd,
-    pub vcpus: Vec<Vcpu>,
+    pub vcpus: Vec<VirtualProcessor>,
     pub vcpu_affinity: Vec<usize>,
     pub irq_chip: Option<File>,
     pub io_bus: Bus,
