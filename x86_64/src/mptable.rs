@@ -313,7 +313,8 @@ pub fn setup_mptable(
     {
         let mut mpc_table = mpc_table::default();
         mpc_table.signature = MPC_SIGNATURE;
-        mpc_table.length = table_end.offset_from(table_base) as u16;
+        mpc_table.length = table_end.checked_offset_from(
+            table_base).unwrap() as u16;
         mpc_table.spec = MPC_SPEC;
         mpc_table.oem = MPC_OEM;
         mpc_table.productid = MPC_PRODUCT_ID;

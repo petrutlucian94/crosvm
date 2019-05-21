@@ -88,7 +88,7 @@ pub enum Error {
     CreateKvm(sys_util::Error),
     CreatePciRoot(arch::DeviceRegistrationError),
     CreatePit(sys_util::Error),
-    CreatePitDevice(devices::PitError),
+    // CreatePitDevice(devices::PitError),
     CreateSocket(io::Error),
     CreateVcpu(sys_util::Error),
     CreateVm(sys_util::Error),
@@ -130,7 +130,7 @@ impl Display for Error {
             CreateKvm(e) => write!(f, "failed to open /dev/kvm: {}", e),
             CreatePciRoot(e) => write!(f, "failed to create a PCI root hub: {}", e),
             CreatePit(e) => write!(f, "unable to create PIT: {}", e),
-            CreatePitDevice(e) => write!(f, "unable to make PIT device: {}", e),
+            // CreatePitDevice(e) => write!(f, "unable to make PIT device: {}", e),
             CreateSocket(e) => write!(f, "failed to create socket: {}", e),
             CreateVcpu(e) => write!(f, "failed to create VCPU: {}", e),
             CreateVm(e) => write!(f, "failed to create VM: {}", e),
@@ -221,21 +221,21 @@ fn configure_system(
         add_e820_entry(
             &mut params,
             kernel_addr.raw_value() as u64,
-            mem_end.offset_from(kernel_addr) as u64,
+            mem_end.checked_offset_from(kernel_addr).unwrap(),
             E820_RAM,
         )?;
     } else {
         add_e820_entry(
             &mut params,
             kernel_addr.raw_value() as u64,
-            end_32bit_gap_start.offset_from(kernel_addr) as u64,
+            end_32bit_gap_start.checked_offset_from(kernel_addr).unwrap(),
             E820_RAM,
         )?;
         if mem_end > first_addr_past_32bits {
             add_e820_entry(
                 &mut params,
                 first_addr_past_32bits.raw_value() as u64,
-                mem_end.offset_from(first_addr_past_32bits) as u64,
+                mem_end.checked_offset_from(first_addr_past_32bits).unwrap(),
                 E820_RAM,
             )?;
         }
@@ -243,7 +243,7 @@ fn configure_system(
 
     let zero_page_addr = GuestAddress(ZERO_PAGE_OFFSET);
     guest_mem
-        .checked_offset(zero_page_addr, mem::size_of::<boot_params>() as u64)
+        .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
         .ok_or(Error::ZeroPagePastRamEnd)?;
     guest_mem
         .write_obj(params, zero_page_addr)
@@ -270,20 +270,20 @@ fn add_e820_entry(params: &mut boot_params, addr: u64, size: u64, mem_type: u32)
 /// These should be used to configure the GuestMemoryMmap structure for the platfrom.
 /// For x86_64 all addresses are valid from the start of the kenel except a
 /// carve out at the end of 32bit address space.
-fn arch_memory_regions(size: u64) -> Vec<(GuestAddress, u64)> {
+fn arch_memory_regions(size: u64) -> Vec<(GuestAddress, usize)> {
     let mem_end = GuestAddress(size);
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
 
     let mut regions = Vec::new();
     if mem_end < end_32bit_gap_start {
-        regions.push((GuestAddress(0), size));
+        regions.push((GuestAddress(0), size as usize));
     } else {
-        regions.push((GuestAddress(0), end_32bit_gap_start.raw_value()));
+        regions.push((GuestAddress(0), end_32bit_gap_start.raw_value() as usize));
         if mem_end > first_addr_past_32bits {
             regions.push((
                 first_addr_past_32bits,
-                mem_end.offset_from(first_addr_past_32bits),
+                mem_end.checked_offset_from(first_addr_past_32bits).unwrap() as usize,
             ));
         }
     }
@@ -492,7 +492,7 @@ impl X8664arch {
     /// * `mem_size` - Desired physical memory size in bytes for this VM
     fn setup_memory(mem_size: u64) -> Result<GuestMemoryMmap> {
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let mem = GuestMemoryMmap::new(&arch_mem_regions).map_err(Error::SetupGuestMemory)?;
+        let mem = GuestMemoryMmap::new(&arch_mem_regions).unwrap();
         Ok(mem)
     }
 
@@ -540,6 +540,7 @@ impl X8664arch {
             .add_io_addresses(0xc000, 0x10000)
             .add_mmio_addresses(MMIO_BASE, 0x100000)
             .add_device_addresses(device_addr_start, u64::max_value() - device_addr_start)
+            .create_allocator(X86_64_IRQ_BASE)
             .unwrap()
     }
 
@@ -619,24 +620,25 @@ impl X8664arch {
             )
             .unwrap();
 
-        if split_irqchip {
-            let pit_evt = EventFd::new().map_err(Error::CreateEventFd)?;
-            let pit = Arc::new(Mutex::new(
-                devices::Pit::new(
-                    pit_evt.try_clone().map_err(Error::CloneEventFd)?,
-                    Arc::new(Mutex::new(Clock::new())),
-                )
-                .map_err(Error::CreatePitDevice)?,
-            ));
-            // Reserve from 0x40 to 0x61 (the speaker).
-            io_bus.insert(pit.clone(), 0x040, 0x22, false).unwrap();
-            vm.register_irqfd(&pit_evt, 0)
-                .map_err(Error::RegisterIrqfd)?;
-        } else {
-            io_bus
-                .insert(nul_device.clone(), 0x040, 0x8, false)
-                .unwrap(); // ignore pit
-        }
+        // if split_irqchip {
+        //     let pit_evt = EventFd::new().map_err(Error::CreateEventFd)?;
+        //     let pit = Arc::new(Mutex::new(
+        //         devices::Pit::new(
+        //             pit_evt.try_clone().map_err(Error::CloneEventFd)?,
+        //             Arc::new(Mutex::new(Clock::new())),
+        //         )
+        //         .map_err(Error::CreatePitDevice)?,
+        //     ));
+        //     // Reserve from 0x40 to 0x61 (the speaker).
+        //     io_bus.insert(pit.clone(), 0x040, 0x22, false).unwrap();
+        //     vm.register_irqfd(&pit_evt, 0)
+        //         .map_err(Error::RegisterIrqfd)?;
+        // } else {
+        // TODO(lpetrut): figure out if we need/want to emulate PIC/PIT devices.
+        io_bus
+            .insert(nul_device.clone(), 0x040, 0x8, false)
+            .unwrap(); // ignore pit
+        // }
 
         io_bus
             .insert(nul_device.clone(), 0x0ed, 0x1, false)
@@ -686,7 +688,7 @@ impl X8664arch {
         cpuid::setup_cpuid(kvm, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
         regs::setup_msrs(vcpu).map_err(Error::SetupMsrs)?;
         let kernel_end = guest_mem
-            .checked_offset(kernel_load_addr, KERNEL_64BIT_ENTRY_OFFSET)
+            .checked_offset(kernel_load_addr, KERNEL_64BIT_ENTRY_OFFSET as usize)
             .ok_or(Error::KernelOffsetPastEnd)?;
         regs::setup_regs(
             vcpu,

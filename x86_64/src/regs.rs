@@ -218,7 +218,7 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
-            .checked_offset(boot_gdt_addr, (index * mem::size_of::<u64>()) as u64)
+            .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
             .ok_or(Error::WriteGDTFailure)?;
         guest_mem
             .write_obj(*entry, addr)

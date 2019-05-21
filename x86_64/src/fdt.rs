@@ -7,7 +7,7 @@ use arch::fdt::{begin_node, end_node, finish_fdt, start_fdt, Error};
 use std::fs::File;
 use std::mem;
 
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use crate::bootparam::setup_data;
 use crate::bootparam::SETUP_DTB;
@@ -52,7 +52,7 @@ pub fn create_fdt(
 
     let fdt_address = GuestAddress(fdt_load_offset);
     guest_mem
-        .checked_offset(fdt_address, fdt_data_size as u64)
+        .checked_offset(fdt_address, fdt_data_size)
         .ok_or(Error::FdtGuestMemoryWriteError)?;
     guest_mem
         .write_obj(hdr, fdt_address)
@@ -60,7 +60,7 @@ pub fn create_fdt(
 
     let fdt_data_address = GuestAddress(fdt_load_offset + mem::size_of::<setup_data>() as u64);
     let written = guest_mem
-        .write_at_addr(fdt_final.as_slice(), fdt_data_address)
+        .write(fdt_final.as_slice(), fdt_data_address)
         .map_err(|_| Error::FdtGuestMemoryWriteError)?;
     if written < fdt_data_size {
         return Err(Error::FdtGuestMemoryWriteError);

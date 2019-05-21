@@ -199,7 +199,8 @@ pub fn setup_smbios(mem: &GuestMemoryMmap) -> Result<()> {
         smbios_ep.minorver = 0x02;
         smbios_ep.docrev = 0x00;
         smbios_ep.revision = 0x01; // SMBIOS 3.0
-        smbios_ep.max_size = curptr.offset_from(physptr) as u32;
+        smbios_ep.max_size = curptr.checked_offset_from(
+            physptr).unwrap() as u32;
         smbios_ep.physptr = physptr.raw_value();
         smbios_ep.checksum = compute_checksum(&smbios_ep);
         mem.write_obj(smbios_ep, GuestAddress(SMBIOS_START))
