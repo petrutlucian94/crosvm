@@ -6,13 +6,15 @@
 
 pub mod argument;
 pub mod linux;
-pub mod panic_hook;
+// pub mod panic_hook;
+
+extern crate vm_memory;
 
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::net;
 use std::num::ParseIntError;
-use std::os::unix::io::{FromRawFd, RawFd};
+// use std::os::unix::io::{FromRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::thread::sleep;
@@ -20,7 +22,7 @@ use std::time::Duration;
 
 use qcow::QcowFile;
 use sys_util::{
-    debug, error, getpid, info, kill_process_group, net::UnixSeqpacket, reap_child, warn,
+    debug, error, info, warn,
 };
 
 use crate::argument::{print_help, set_arguments, Argument};
@@ -35,13 +37,6 @@ struct BindMount {
     src: PathBuf,
     dst: PathBuf,
     writable: bool,
-}
-
-#[allow(dead_code)]
-struct GidMap {
-    inner: libc::gid_t,
-    outer: libc::gid_t,
-    count: u32,
 }
 
 const DEFAULT_TOUCH_DEVICE_WIDTH: u32 = 800;
@@ -75,7 +70,7 @@ pub struct Config {
     host_ip: Option<net::Ipv4Addr>,
     netmask: Option<net::Ipv4Addr>,
     mac_address: Option<String>,
-    tap_fd: Vec<RawFd>,
+    // tap_fd: Vec<RawFd>,
     shared_dirs: Vec<(PathBuf, String)>,
     split_irqchip: bool,
 }
@@ -94,7 +89,7 @@ impl Default for Config {
             host_ip: None,
             netmask: None,
             mac_address: None,
-            tap_fd: Vec::new(),
+            // tap_fd: Vec::new(),
             shared_dirs: Vec::new(),
             split_irqchip: false,
         }
@@ -466,7 +461,7 @@ fn print_usage() {
 }
 
 fn crosvm_main() -> std::result::Result<(), ()> {
-    panic_hook::set_panic_hook();
+    // panic_hook::set_panic_hook();
 
     let mut args = std::env::args();
     if args.next().is_none() {
@@ -482,7 +477,7 @@ fn crosvm_main() -> std::result::Result<(), ()> {
         }
         Some("run") => run_vm(args),
         Some("create_qcow2") => create_qcow2(args),
-        Some("disk") => disk_cmd(args),
+        // Some("disk") => disk_cmd(args),
         Some(c) => {
             println!("invalid subcommand: {:?}", c);
             print_usage();
