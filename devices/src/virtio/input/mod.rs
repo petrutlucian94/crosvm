@@ -12,7 +12,7 @@ use self::constants::*;
 
 use std::os::unix::io::{AsRawFd, RawFd};
 
-use data_model::{DataInit, Le16, Le32};
+use vm_memory::{ByteValued, Le16, Le32};
 use sys_util::{error, warn, EventFd, GuestMemoryMmap, PollContext, PollToken};
 
 use self::event_source::{input_event, EvdevEventSource, EventSource, SocketEventSource};
@@ -86,7 +86,7 @@ pub struct virtio_input_device_ids {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_input_device_ids {}
+unsafe impl ByteValued for virtio_input_device_ids {}
 
 impl virtio_input_device_ids {
     fn new(bustype: u16, product: u16, vendor: u16, version: u16) -> virtio_input_device_ids {
@@ -109,7 +109,7 @@ pub struct virtio_input_absinfo {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_input_absinfo {}
+unsafe impl ByteValued for virtio_input_absinfo {}
 
 impl virtio_input_absinfo {
     fn new(min: u32, max: u32, fuzz: u32, flat: u32) -> virtio_input_absinfo {
@@ -133,7 +133,7 @@ struct virtio_input_config {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_input_config {}
+unsafe impl ByteValued for virtio_input_config {}
 
 impl virtio_input_config {
     fn new() -> virtio_input_config {
@@ -361,7 +361,7 @@ struct virtio_input_event {
 }
 
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for virtio_input_event {}
+unsafe impl ByteValued for virtio_input_event {}
 
 impl virtio_input_event {
     const EVENT_SIZE: usize = size_of::<virtio_input_event>();

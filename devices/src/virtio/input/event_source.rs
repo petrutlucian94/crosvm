@@ -7,7 +7,7 @@ use super::evdev::{grab_evdev, ungrab_evdev};
 use super::virtio_input_event;
 use super::InputError;
 use super::Result;
-use data_model::DataInit;
+use vm_memory::ByteValued;
 use std::collections::VecDeque;
 use std::io::Read;
 use std::io::Write;
@@ -24,7 +24,7 @@ pub struct input_event {
     pub value: u32,
 }
 // Safe because it only has data and has no implicit padding.
-unsafe impl DataInit for input_event {}
+unsafe impl ByteValued for input_event {}
 
 impl input_event {
     const EVENT_SIZE: usize = size_of::<input_event>();
@@ -339,7 +339,7 @@ mod tests {
     use crate::virtio::input::event_source::input_event;
     use crate::virtio::input::event_source::EventSourceImpl;
     use crate::virtio::input::virtio_input_event;
-    use data_model::{DataInit, Le16, Le32};
+    use vm_memory::{ByteValued, Le16, Le32};
     use std::cmp::min;
     use std::io::Read;
     use std::io::Write;

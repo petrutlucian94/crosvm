@@ -9,7 +9,6 @@ build = "build.rs"
 arch = { path = "../arch" }
 assertions = { path = "../assertions" }
 byteorder = "*"
-data_model = { path = "../data_model" }
 devices = { path = "../devices" }
 kernel_cmdline = { path = "../kernel_cmdline" }
 kernel_loader = { path = "../kernel_loader" }

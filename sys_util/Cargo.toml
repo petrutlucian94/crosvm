@@ -6,7 +6,6 @@ edition = "2018"
 include = ["src/**/*", "Cargo.toml"]
 
 [dependencies]
-data_model = { path = "../data_model" } # provided by ebuild
 libc = "*"
 sync = { path = "../sync" } # provided by ebuild
 tempfile = "3.0.7"

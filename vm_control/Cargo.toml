@@ -9,7 +9,6 @@ edition = "2018"
 
 [dependencies]
 byteorder = "*"
-data_model = { path = "../data_model" }
 kvm = { path = "../kvm" }
 libc = "*"
 resources = { path = "../resources" }

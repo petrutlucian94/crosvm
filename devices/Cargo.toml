@@ -8,7 +8,6 @@ edition = "2018"
 chrono = "0.4.6"
 bit_field = { path = "../bit_field" }
 byteorder = "*"
-data_model = { path = "../data_model" }
 enumn = { path = "../enumn" }
 kvm = { path = "../kvm" }
 libc = "*"
