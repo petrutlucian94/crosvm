@@ -5,8 +5,10 @@ authors = ["Jenny Mankin"]
 edition = "2018"
 
 [dependencies]
+kvm_sys = { path = "../kvm_sys" }
 libwhp = { path = "../libwhp" }
 vmm-vcpu = { path = "../vmm-vcpu" }
+sys_util = { path = "../sys_util" }
 libc = "*"
 
 kvm-bindings = "0.1"
