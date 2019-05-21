@@ -8,16 +8,11 @@ extern crate vm_memory;
 
 mod cap;
 
-use std::cmp::{min, Ordering};
-use std::collections::hash_map::Entry;
+use std::cmp::{Ordering};
 use std::collections::{BinaryHeap, HashMap};
 use std::fs::File;
 use std::mem::size_of;
 use std::os::raw::*;
-// use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use std::ptr::copy_nonoverlapping;
-
-use libc::{open, EINVAL, ENOENT, ENOSPC, O_RDWR};
 
 use vm_memory::{GuestAddress, GuestMemoryMmap, MmapRegion};
 
@@ -25,14 +20,11 @@ use kvm_sys::*;
 
 
 use sys_util::{
-    pagesize, warn, Error, EventFd, Result,
+    pagesize, Error, EventFd, Result,
 };
 
 pub use crate::cap::*;
 
-fn errno_result<T>() -> Result<T> {
-    Err(Error::last())
-}
 
 // Returns a `Vec<T>` with a size in ytes at least as large as `size_in_bytes`.
 fn vec_with_size_in_bytes<T: Default>(size_in_bytes: usize) -> Vec<T> {
@@ -102,10 +94,6 @@ impl Kvm {
         panic!("Not Implemented")
     }
 
-    fn check_extension_int(&self, c: Cap) -> i32 {
-        panic!("Not Implemented")
-    }
-
     /// Checks if a particular `Cap` is available.
     pub fn check_extension(&self, c: Cap) -> bool {
         panic!("Not Implemented")
@@ -118,11 +106,6 @@ impl Kvm {
 
     /// Gets the recommended maximum number of VCPUs per VM.
     pub fn get_nr_vcpus(&self) -> u32 {
-        panic!("Not Implemented")
-    }
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn get_cpuid(&self, kind: u64) -> Result<CpuId> {
         panic!("Not Implemented")
     }
 

@@ -3,22 +3,18 @@
 // found in the LICENSE file.
 
 use std;
-use std::cmp::min;
 use std::error::Error as StdError;
-use std::ffi::CStr;
 use std::fmt::{self, Display};
 use std::fs::{File, OpenOptions};
 use std::io::{self, stdin, Read};
-use std::net::Ipv4Addr;
-// use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+// use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::str;
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use libc::{self, c_int};
+use libc::{self};
 use vm_memory::{GuestMemoryMmap};
 
 use devices::virtio::{self, VirtioDevice};
@@ -27,11 +23,10 @@ use kvm::*;
 use qcow::{self, ImageType, QcowFile};
 use remain::sorted;
 use sync::{Condvar, Mutex};
-use sys_util::{self, error, info,
-    warn, EventFd};
+use sys_util::{self, error, warn, EventFd};
 use vm_control::{VmRunMode};
 
-use crate::{Config, DiskOption, TouchDeviceOption};
+use crate::{Config, DiskOption};
 
 use arch::{self, LinuxArch, RunnableLinuxVm, VirtioDeviceStub, VmComponents};
 
@@ -56,7 +51,6 @@ pub enum Error {
     InvalidFdPath,
     LoadKernel(Box<dyn StdError>),
     // NetDeviceNew(virtio::NetError),
-    OpenAndroidFstab(PathBuf, io::Error),
     OpenInitrd(PathBuf, io::Error),
     OpenKernel(PathBuf, io::Error),
     OpenVinput(PathBuf, io::Error),
@@ -97,12 +91,6 @@ impl Display for Error {
             InvalidFdPath => write!(f, "failed parsing a /proc/self/fd/*"),
             LoadKernel(e) => write!(f, "failed to load kernel: {}", e),
             // NetDeviceNew(e) => write!(f, "failed to set up virtio networking: {}", e),
-            OpenAndroidFstab(p, e) => write!(
-                f,
-                "failed to open android fstab file {}: {}",
-                p.display(),
-                e
-            ),
             OpenInitrd(p, e) => write!(f, "failed to open initrd {}: {}", p.display(), e),
             OpenKernel(p, e) => write!(f, "failed to open kernel image {}: {}", p.display(), e),
             OpenVinput(p, e) => write!(f, "failed to open vinput device {}: {}", p.display(), e),
@@ -137,7 +125,7 @@ type DeviceResult<T = VirtioDeviceStub> = std::result::Result<T, Error>;
 
 fn create_virtio_devices(
     cfg: &Config,
-    mem: &GuestMemoryMmap,
+    _mem: &GuestMemoryMmap,
     _exit_evt: &EventFd,
 ) -> DeviceResult<Vec<VirtioDeviceStub>> {
     let mut devs = Vec::new();
@@ -150,7 +138,7 @@ fn create_virtio_devices(
 }
 
 fn create_block_device(
-    cfg: &Config,
+    _cfg: &Config,
     disk: &DiskOption,
 ) -> DeviceResult {
     // Special case '/proc/self/fd/*' paths. The FD is already open, just use it.
@@ -228,7 +216,7 @@ impl VcpuRunMode {
 fn run_vcpu(
     vcpu: Vcpu,
     cpu_id: u32,
-    vcpu_affinity: Vec<usize>,
+    _vcpu_affinity: Vec<usize>,
     start_barrier: Arc<Barrier>,
     io_bus: devices::Bus,
     mmio_bus: devices::Bus,
@@ -340,11 +328,6 @@ pub fn run_config(cfg: Config) -> Result<()> {
         vcpu_affinity: cfg.vcpu_affinity.clone(),
         kernel_image: File::open(&cfg.kernel_path)
             .map_err(|e| Error::OpenKernel(cfg.kernel_path.clone(), e))?,
-        android_fstab: cfg
-            .android_fstab
-            .as_ref()
-            .map(|x| File::open(x).map_err(|e| Error::OpenAndroidFstab(x.to_path_buf(), e)))
-            .map_or(Ok(None), |v| v.map(Some))?,
         initrd_image,
         extra_kernel_params: cfg.params.clone(),
     };
@@ -460,6 +443,5 @@ fn run_control(
     //         Err(e) => error!("failed to kill vcpu thread: {}", e),
     //     }
     // }
-
-    Ok(())
+    // Ok(())
 }

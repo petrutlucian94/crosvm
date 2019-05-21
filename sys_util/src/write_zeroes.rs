@@ -4,7 +4,7 @@
 
 use std::cmp::min;
 use std::fs::File;
-use std::io::{self, Seek, SeekFrom, Write, Error, ErrorKind, Result};
+use std::io::{self, Seek, SeekFrom, Write, Error, ErrorKind};
 
 /// A trait for deallocating space in a file.
 pub trait PunchHole {

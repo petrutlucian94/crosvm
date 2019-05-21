@@ -3,14 +3,10 @@
 // found in the LICENSE file.
 
 use std::fs::File;
-use std::mem;
-use std::ptr;
-use std::sync::Arc;
 use std::time::Duration;
-use sync::Mutex;
 
 
-use crate::{errno_result, EventFd, Result};
+use crate::{Result};
 
 /// A safe wrapper around a Linux timerfd (man 2 timerfd_create).
 pub struct TimerFd(File);

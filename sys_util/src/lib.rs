@@ -68,13 +68,6 @@ pub use crate::seek_hole::SeekHole;
 pub use crate::file_traits::{FileSetLen, FileSync};
 pub use crate::write_zeroes::{PunchHole, WriteZeroes};
 
-use std::fs::{remove_file, File};
-// use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-
-use libc::{
-    c_long
-};
-
 /// Safe wrapper for `sysconf(_SC_PAGESIZE)`.
 #[inline(always)]
 pub fn pagesize() -> usize {

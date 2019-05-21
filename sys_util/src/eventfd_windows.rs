@@ -46,7 +46,7 @@ impl EventFd {
     }
 
     /// Adds `v` to the eventfd's count, blocking until this won't overflow the count.
-    pub fn write(&self, v: u64) -> Result<()> {
+    pub fn write(&self, _v: u64) -> Result<()> {
         let result = unsafe { SetEvent(self.eventfd) };
         if result == 0 {
             return errno_result();

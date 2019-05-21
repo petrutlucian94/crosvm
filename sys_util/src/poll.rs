@@ -51,7 +51,7 @@ impl PollContext {
         let handles_len = self.handles.len() as u32;
 
         // can't use patterns with variables...
-        if ret_val >= 0 && ret_val <= handles_len {
+        if ret_val <= handles_len {
             PollResult::Signaled(
                 self.handles[ret_val as usize])
         }

@@ -27,15 +27,11 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io;
-use std::io::{stderr, Cursor, ErrorKind, Write};
-use std::mem;
+use std::io::{stderr, Cursor, Write};
 use std::path::PathBuf;
-use std::ptr::null;
 use std::sync::{MutexGuard, Once, ONCE_INIT};
 
 use sync::Mutex;
-
-const SYSLOG_PATH: &str = "/dev/log";
 
 /// The priority (i.e. severity) of a syslog message.
 ///
@@ -217,28 +213,6 @@ pub fn set_proc_name<T: Into<String>>(proc_name: T) {
     state.proc_name = Some(proc_name.into());
 }
 
-/// Enables or disables echoing log messages to the syslog.
-///
-/// The default behavior is **enabled**.
-///
-/// If `enable` goes from `true` to `false`, the syslog connection is closed. The connection is
-/// reopened if `enable` is set to `true` after it became `false`.
-///
-/// Returns an error if syslog was never initialized or the syslog connection failed to be
-/// established.
-///
-/// # Arguments
-/// * `enable` - `true` to enable echoing to syslog, `false` to disable echoing to syslog.
-pub fn echo_syslog(enable: bool) -> Result<(), Error> {
-    let state_ptr = unsafe { STATE };
-    if state_ptr.is_null() {
-        return Err(Error::NeverInitialized);
-    }
-    let mut state = lock().map_err(|_| Error::Poisoned)?;
-
-    Ok(())
-}
-
 /// Replaces the optional `File` to echo log messages to.
 ///
 /// The default behavior is to not echo to a file. Passing `None` to this function restores that
@@ -295,10 +269,6 @@ pub fn echo_stderr(enable: bool) {
 /// # }
 /// ```
 pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::Arguments) {
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-
     let mut state = lock!();
     let mut buf = [0u8; 1024];
 

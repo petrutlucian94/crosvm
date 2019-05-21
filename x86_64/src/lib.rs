@@ -68,7 +68,7 @@ use kvm::*;
 use remain::sorted;
 use resources::SystemAllocator;
 use sync::Mutex;
-use sys_util::{Clock, EventFd};
+use sys_util::{EventFd};
 
 #[sorted]
 #[derive(Debug)]
@@ -327,7 +327,7 @@ impl arch::LinuxArch for X8664arch {
 
         let pci_devices =
             create_devices(&mem, &exit_evt).map_err(|e| Error::CreateDevices(Box::new(e)))?;
-        let (pci, pci_irqs, pid_debug_label_map) =
+        let (pci, pci_irqs) =
             arch::generate_pci_root(pci_devices, &mut mmio_bus, &mut resources, &mut vm)
                 .map_err(Error::CreatePciRoot)?;
         let pci_bus = Arc::new(Mutex::new(PciConfigIo::new(pci)));
@@ -354,7 +354,6 @@ impl arch::LinuxArch for X8664arch {
             &CString::new(cmdline).unwrap(),
             components.initrd_image,
             pci_irqs,
-            components.android_fstab,
             kernel_end,
         )?;
 
@@ -369,7 +368,6 @@ impl arch::LinuxArch for X8664arch {
             irq_chip,
             io_bus,
             mmio_bus,
-            pid_debug_label_map,
         })
     }
 }
@@ -402,7 +400,6 @@ impl X8664arch {
         cmdline: &CStr,
         initrd_file: Option<File>,
         pci_irqs: Vec<(u32, PciInterruptPin)>,
-        android_fstab: Option<File>,
         kernel_end: u64,
     ) -> Result<()> {
         kernel_loader::load_cmdline(mem, GuestAddress(CMDLINE_OFFSET), cmdline)

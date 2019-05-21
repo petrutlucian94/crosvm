@@ -20,8 +20,8 @@ use sync::Mutex;
 use sys_util::Error as SysError;
 use sys_util::Result as SysResult;
 use sys_util::{
-    error, info, warn, EventFd, FileSetLen, FileSync,
-    PollContext, PollResult, PunchHole, TimerFd, WriteZeroes,
+    error, warn, EventFd, FileSetLen, FileSync,
+    PollContext, PollResult, PunchHole, WriteZeroes,
 };
 
 use vm_memory::endian::{Le16, Le32, Le64};

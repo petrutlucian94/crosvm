@@ -10,20 +10,13 @@ pub mod linux;
 
 extern crate vm_memory;
 
-use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::{OpenOptions};
 use std::net;
-use std::num::ParseIntError;
-// use std::os::unix::io::{FromRawFd, RawFd};
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::string::String;
-use std::thread::sleep;
-use std::time::Duration;
 
 use qcow::QcowFile;
-use sys_util::{
-    debug, error, info, warn,
-};
+use sys_util::{error, info};
 
 use crate::argument::{print_help, set_arguments, Argument};
 
@@ -39,31 +32,11 @@ struct BindMount {
     writable: bool,
 }
 
-const DEFAULT_TOUCH_DEVICE_WIDTH: u32 = 800;
-const DEFAULT_TOUCH_DEVICE_HEIGHT: u32 = 1280;
-
-struct TouchDeviceOption {
-    path: PathBuf,
-    width: u32,
-    height: u32,
-}
-
-impl TouchDeviceOption {
-    fn new(path: PathBuf) -> TouchDeviceOption {
-        TouchDeviceOption {
-            path,
-            width: DEFAULT_TOUCH_DEVICE_WIDTH,
-            height: DEFAULT_TOUCH_DEVICE_HEIGHT,
-        }
-    }
-}
-
 pub struct Config {
     vcpu_count: Option<u32>,
     vcpu_affinity: Vec<usize>,
     memory: Option<usize>,
     kernel_path: PathBuf,
-    android_fstab: Option<PathBuf>,
     initrd_path: Option<PathBuf>,
     params: Vec<String>,
     disks: Vec<DiskOption>,
@@ -82,7 +55,6 @@ impl Default for Config {
             vcpu_affinity: Vec::new(),
             memory: None,
             kernel_path: PathBuf::default(),
-            android_fstab: None,
             initrd_path: None,
             params: Vec::new(),
             disks: Vec::new(),
@@ -155,24 +127,6 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
                     });
                 }
                 cfg.kernel_path = kernel_path;
-            }
-        }
-        "android-fstab" => {
-            if cfg.android_fstab.is_some()
-                && !cfg.android_fstab.as_ref().unwrap().as_os_str().is_empty()
-            {
-                return Err(argument::Error::TooManyArguments(
-                    "expected exactly one android fstab path".to_owned(),
-                ));
-            } else {
-                let android_fstab = PathBuf::from(value.unwrap());
-                if !android_fstab.exists() {
-                    return Err(argument::Error::InvalidValue {
-                        value: value.unwrap().to_owned(),
-                        expected: "this android fstab path does not exist",
-                    });
-                }
-                cfg.android_fstab = Some(android_fstab);
             }
         }
         "params" => {

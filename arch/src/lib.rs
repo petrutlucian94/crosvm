@@ -4,18 +4,17 @@
 
 extern crate vm_memory;
 
-use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
-use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryError};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap, GuestMemoryError};
 
 use devices::virtio::VirtioDevice;
 use devices::{
-    Bus, BusDevice, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
+    Bus, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
     Serial,
 };
 use kvm::{IoeventAddress, Kvm, Vcpu, Vm};
@@ -30,7 +29,6 @@ pub struct VmComponents {
     pub vcpu_count: u32,
     pub vcpu_affinity: Vec<usize>,
     pub kernel_image: File,
-    pub android_fstab: Option<File>,
     pub initrd_image: Option<File>,
     pub extra_kernel_params: Vec<String>,
 }
@@ -47,7 +45,6 @@ pub struct RunnableLinuxVm {
     pub irq_chip: Option<File>,
     pub io_bus: Bus,
     pub mmio_bus: Bus,
-    pub pid_debug_label_map: BTreeMap<u32, String>,
 }
 
 /// The device and optional jail.
@@ -136,11 +133,10 @@ pub fn generate_pci_root(
     mmio_bus: &mut Bus,
     resources: &mut SystemAllocator,
     vm: &mut Vm,
-) -> Result<(PciRoot, Vec<(u32, PciInterruptPin)>, BTreeMap<u32, String>), DeviceRegistrationError>
+) -> Result<(PciRoot, Vec<(u32, PciInterruptPin)>), DeviceRegistrationError>
 {
     let mut root = PciRoot::new();
     let mut pci_irqs = Vec::new();
-    let mut pid_labels = BTreeMap::new();
     for (dev_idx, mut device) in devices.into_iter().enumerate() {
         // Only support one bus.
         device.assign_bus_dev(0, dev_idx as u8);
@@ -191,7 +187,7 @@ pub fn generate_pci_root(
                 .map_err(DeviceRegistrationError::MmioInsert)?;
         }
     }
-    Ok((root, pci_irqs, pid_labels))
+    Ok((root, pci_irqs))
 }
 
 /// Errors for image loading.
