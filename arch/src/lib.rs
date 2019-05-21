@@ -4,9 +4,6 @@
 
 extern crate vm_memory;
 
-pub mod android;
-pub mod fdt;
-
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt::{self, Display};

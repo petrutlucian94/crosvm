@@ -4,10 +4,6 @@
 
 extern crate vm_memory;
 
-mod fdt;
-
-const X86_64_FDT_MAX_SIZE: u64 = 0x200000;
-
 #[allow(dead_code)]
 #[allow(non_upper_case_globals)]
 #[allow(non_camel_case_types)]
@@ -28,7 +24,6 @@ impl Clone for bootparam::boot_params {
 }
 // boot_params is just a series of ints, it is safe to initialize it.
 unsafe impl vm_memory::ByteValued for bootparam::boot_params {}
-unsafe impl vm_memory::ByteValued for bootparam::setup_data {}
 
 #[allow(dead_code)]
 #[allow(non_upper_case_globals)]
@@ -83,7 +78,6 @@ pub enum Error {
     ConfigureSystem,
     CreateDevices(Box<dyn StdError>),
     CreateEventFd(sys_util::Error),
-    CreateFdt(arch::fdt::Error),
     CreateIrqChip(sys_util::Error),
     CreateKvm(sys_util::Error),
     CreatePciRoot(arch::DeviceRegistrationError),
@@ -125,7 +119,6 @@ impl Display for Error {
             ConfigureSystem => write!(f, "error configuring the system"),
             CreateDevices(e) => write!(f, "error creating devices: {}", e),
             CreateEventFd(e) => write!(f, "unable to make an EventFd: {}", e),
-            CreateFdt(e) => write!(f, "failed to create fdt: {}", e),
             CreateIrqChip(e) => write!(f, "failed to create irq chip: {}", e),
             CreateKvm(e) => write!(f, "failed to open /dev/kvm: {}", e),
             CreatePciRoot(e) => write!(f, "failed to create a PCI root hub: {}", e),
@@ -182,7 +175,6 @@ fn configure_system(
     cmdline_size: usize,
     num_cpus: u8,
     pci_irqs: Vec<(u32, PciInterruptPin)>,
-    setup_data: Option<GuestAddress>,
     initrd: Option<(GuestAddress, usize)>,
 ) -> Result<()> {
     const EBDA_START: u64 = 0x0009fc00;
@@ -206,9 +198,6 @@ fn configure_system(
     params.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
     params.hdr.cmdline_size = cmdline_size as u32;
     params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
-    if let Some(setup_data) = setup_data {
-        params.hdr.setup_data = setup_data.raw_value();
-    }
     if let Some((initrd_addr, initrd_size)) = initrd {
         params.hdr.ramdisk_image = initrd_addr.raw_value() as u32;
         params.hdr.ramdisk_size = initrd_size as u32;
@@ -423,22 +412,6 @@ impl X8664arch {
         // data like the device tree blob and initrd will be loaded.
         let mut free_addr = kernel_end;
 
-        let setup_data = if let Some(android_fstab) = android_fstab {
-            let free_addr_aligned = (((free_addr + 64 - 1) / 64) * 64) + 64;
-            let dtb_start = GuestAddress(free_addr_aligned);
-            let dtb_size = fdt::create_fdt(
-                X86_64_FDT_MAX_SIZE as usize,
-                mem,
-                dtb_start.raw_value(),
-                android_fstab,
-            )
-            .map_err(Error::CreateFdt)?;
-            free_addr = dtb_start.raw_value() + dtb_size as u64;
-            Some(dtb_start)
-        } else {
-            None
-        };
-
         let initrd = match initrd_file {
             Some(mut initrd_file) => {
                 let initrd_start = free_addr;
@@ -463,7 +436,6 @@ impl X8664arch {
             cmdline.to_bytes().len() + 1,
             vcpu_count as u8,
             pci_irqs,
-            setup_data,
             initrd,
         )?;
         Ok(())
