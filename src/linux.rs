@@ -19,13 +19,17 @@ use vm_memory::{GuestMemoryMmap};
 
 use devices::virtio::{self, VirtioDevice};
 use devices::{self, PciDevice, VirtioPciDevice};
-use kvm::*;
 use qcow::{self, ImageType, QcowFile};
 use remain::sorted;
 use sync::{Condvar, Mutex};
 use sys_util::{self, error, warn, EventFd};
 use vm_control::{VmRunMode};
 
+use vmm_vcpu::vcpu::{Vcpu, VcpuExit};
+
+#[cfg(windows)]
+use whp::*;
+use libwhp::VirtualProcessor;
 use crate::{Config, DiskOption};
 
 use arch::{self, LinuxArch, RunnableLinuxVm, VirtioDeviceStub, VmComponents};
@@ -213,8 +217,8 @@ impl VcpuRunMode {
     }
 }
 
-fn run_vcpu(
-    vcpu: Vcpu,
+fn run_vcpu (
+    vcpu: VirtualProcessor,
     cpu_id: u32,
     _vcpu_affinity: Vec<usize>,
     start_barrier: Arc<Barrier>,

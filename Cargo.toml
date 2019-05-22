@@ -28,7 +28,6 @@ devices = { path = "devices" }
 enumn = { path = "enumn" }
 kernel_cmdline = { path = "kernel_cmdline" }
 kernel_loader = { path = "kernel_loader" }
-kvm = { path = "kvm" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
 qcow = { path = "qcow" }
@@ -37,7 +36,14 @@ resources = { path = "resources" }
 sync = { path = "sync" }
 sys_util = "*"
 vm_control = { path = "vm_control" }
+vmm-vcpu = { path = "vmm-vcpu" }
+
+[target.'cfg(unix)'.dependencies]
+kvm = { path = "kvm" }
+
+[target.'cfg(windows)'.dependencies]
 whp = { path = "whp" }
+libwhp = { path = "libwhp" }
 
 [dependencies.vm-memory]
 path = "vm-memory"
