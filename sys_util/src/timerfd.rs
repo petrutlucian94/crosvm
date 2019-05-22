@@ -21,6 +21,8 @@ pub struct TimerFd {
     armed: bool
 }
 
+unsafe impl Send for TimerFd {}
+
 impl TimerFd {
     /// Creates a new timerfd.  The timer is initally disarmed and must be armed by calling
     /// `reset`.

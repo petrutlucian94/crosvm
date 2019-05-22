@@ -13,7 +13,6 @@ mod i8042;
 mod ioapic;
 mod pci;
 mod pic;
-#[cfg(unix)]
 mod pit;
 pub mod pl030;
 #[macro_use]
@@ -32,7 +31,6 @@ pub use self::pci::{
     PciConfigIo, PciConfigMmio, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
 };
 pub use self::pic::Pic;
-#[cfg(unix)]
 pub use self::pit::{Pit, PitError};
 pub use self::pl030::Pl030;
 pub use self::serial::Serial;

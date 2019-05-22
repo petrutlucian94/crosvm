@@ -8,11 +8,13 @@ use std::io::Error as IoError;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use std::os::windows::io::AsRawHandle;
 
 use bit_field::BitField1;
 use bit_field::*;
 use sync::Mutex;
-use sys_util::{error, warn, Error as SysError, EventFd, Fd, PollContext, PollToken};
+use sys_util::{error, warn, Error as SysError, EventFd, Fd,
+               PollContext, PollResult};
 
 #[cfg(not(test))]
 use sys_util::Clock;
@@ -146,8 +148,6 @@ const MAX_TIMER_FREQ: u32 = 65536;
 #[derive(Debug)]
 pub enum PitError {
     TimerFdCreateError(SysError),
-    /// Creating PollContext failed.
-    CreatePollContext(SysError),
     /// Error while polling for events.
     PollError(SysError),
     /// Error while trying to create worker thread.
@@ -166,7 +166,6 @@ impl Display for PitError {
             TimerFdCreateError(e) => {
                 write!(f, "failed to create pit counter due to timer fd: {}", e)
             }
-            CreatePollContext(e) => write!(f, "failed to create poll context: {}", e),
             PollError(err) => write!(f, "failed to poll events: {}", err),
             SpawnThread(err) => write!(f, "failed to spawn thread: {}", err),
             CreateEventFd(err) => write!(f, "failed to create event fd: {}", err),
@@ -274,7 +273,7 @@ impl Pit {
             .map_err(PitError::CreateEventFd)?;
         let mut worker = Worker {
             pit_counter: counters[0].clone(),
-            fd: Fd(counters[0].lock().timer.as_raw_fd()),
+            fd: Fd(counters[0].lock().timer.as_raw_handle()),
         };
         let evt = kill_evt.try_clone().map_err(PitError::CloneEventFd)?;
         let worker_thread = thread::Builder::new()
@@ -736,29 +735,23 @@ struct Worker {
 
 impl Worker {
     fn run(&mut self, kill_evt: EventFd) -> PitResult<()> {
-        #[derive(PollToken)]
-        enum Token {
-            // The timer expired.
-            TimerExpire,
-            // The parent thread requested an exit.
-            Kill,
-        }
-
-        let poll_ctx: PollContext<Token> = PollContext::new()
-            .and_then(|pc| pc.add(&self.fd, Token::TimerExpire).and(Ok(pc)))
-            .and_then(|pc| pc.add(&kill_evt, Token::Kill).and(Ok(pc)))
-            .map_err(PitError::CreatePollContext)?;
+        let mut poll_ctx = PollContext::new();
+        poll_ctx.add(self.fd.as_raw_handle());
+        poll_ctx.add(kill_evt.as_raw_handle());
 
         loop {
-            let events = poll_ctx.wait().map_err(PitError::PollError)?;
-            for event in events.iter_readable() {
-                match event.token() {
-                    Token::TimerExpire => {
-                        let mut pit = self.pit_counter.lock();
-                        pit.timer_handler();
-                    }
-                    Token::Kill => return Ok(()),
-                }
+            let poll_result = poll_ctx.wait();
+            let signaled_h = match poll_result {
+                PollResult::Signaled(h) => h,
+                _ => panic!(format!("Unexpected poll result {:?}.", poll_result)),
+            };
+
+            if signaled_h == self.fd.as_raw_handle() {
+                let mut pit = self.pit_counter.lock();
+                pit.timer_handler();
+            }
+            else if signaled_h == kill_evt.as_raw_handle() {
+                return Ok(());
             }
         }
     }

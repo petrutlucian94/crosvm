@@ -28,6 +28,9 @@ mod windows {
             self.0
         }
     }
+
+    // TODO(lpetrut): probably unsafe, this will need to be addressed.
+    unsafe impl Send for Fd {}
 }
 
 #[cfg(unix)]
