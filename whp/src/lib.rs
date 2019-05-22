@@ -18,7 +18,7 @@ use std::fs::File;
 use std::mem::size_of;
 use std::os::raw::*;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap, MmapRegion};
+use vm_memory::*;
 
 use kvm_sys::*;
 
@@ -28,8 +28,9 @@ use sys_util::{
 
 pub use crate::cap::*;
 
-use libwhp::VirtualProcessor;
 use libwhp::whp_vcpu::*;
+use libwhp::memory::*;
+use libwhp::{VirtualProcessor, Partition, GPARangeMapping};
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit, Result as VcpuResult};
 use vmm_vcpu::x86_64::{FpuState, MsrEntries, SpecialRegisters, StandardRegisters,
                        LapicState, CpuId};
@@ -216,19 +217,83 @@ impl PartialOrd for MemSlot {
         Some(self.cmp(other))
     }
 }
+struct MemoryRegionRef<'a> {
+    region: &'a GuestRegionMmap,
+}
+
+impl<'a> MemoryRegionRef<'a> {
+    fn new(region: &'a GuestRegionMmap) -> Self {
+        Self { region: region }
+    }
+}
+
+impl<'a> Memory for MemoryRegionRef<'a> {
+    fn as_slice_mut(&mut self) -> &mut [u8] {
+        return unsafe { self.region.as_mut_slice().unwrap() };
+    }
+
+    fn as_ptr(&self) -> *const std::ffi::c_void {
+        return unsafe { self.region.as_slice().unwrap().as_ptr() as *const std::ffi::c_void };
+    }
+
+    fn get_size(&self) -> usize {
+        return unsafe { self.region.as_slice().unwrap().len() };
+    }
+}
 
 /// A wrapper around creating and using a VM.
 pub struct Vm {
-    vm: File,
+    partition: Partition,
+    mappings: Vec<GPARangeMapping>,
+
+    /*
     guest_mem: GuestMemoryMmap,
     device_memory: HashMap<u32, MmapRegion>,
     mem_slot_gaps: BinaryHeap<MemSlot>,
+    */
+}
+
+impl Default for Vm {
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 
 impl Vm {
-    /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm, guest_mem: GuestMemoryMmap) -> Result<Vm> {
-        panic!("Not Implemented")
+    /// Constructs a new `Vm` (Partition) using the given `WhpManager` instance.
+    /// TODO: Currently working through this/not complete
+    pub fn new(whp: &WhpManager, guest_mem: GuestMemoryMmap) -> Result<Vm> {
+        let mut partition = Partition::new().unwrap();
+        let mut vm: Vm = Default::default();
+
+        vm.partition = partition;
+        vm.mappings = Vec::new();
+
+        // set_guest_memory(self, guest_memory: &GuestMemoryMmap)
+        // Process all memory regions
+        // TODO: RESUME HERE
+        /*
+        guest_mem.with_regions_mut(|_index, region| {
+            // MemoryRegionRef implements the libwhp::Memory trait
+            let region_ref = MemoryRegionRef::new(region);
+
+            // Map the memory to the guest
+            let mapping = partition
+                .map_gpa_range(
+                    &region_ref,
+                    region.start_addr().0,
+                    region.len() as u64,
+                    WHV_MAP_GPA_RANGE_FLAGS::WHvMapGpaRangeFlagRead
+                        | WHV_MAP_GPA_RANGE_FLAGS::WHvMapGpaRangeFlagWrite
+                        | WHV_MAP_GPA_RANGE_FLAGS::WHvMapGpaRangeFlagExecute,
+                ).unwrap();
+            
+           vm.mappings.push(mapping);
+           Ok(())
+        })?;
+        */
+
+        Ok(vm)
     }
 
     /// Checks if a particular `Cap` is available.
@@ -286,7 +351,7 @@ impl Vm {
     /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after
     /// this VM was constructed.
     pub fn get_memory(&self) -> &GuestMemoryMmap {
-        &self.guest_mem
+        panic!("Not Implemented")
     }
 
     /// Sets the address of the three-page region in the VM's address space.
