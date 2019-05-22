@@ -4,33 +4,31 @@
 
 use std::alloc::Layout;
 use std::fmt::{self, Display};
-use std::{mem, result};
+use std::{mem, result, io};
 
 use vm_memory::{Address, Bytes, GuestMemory, GuestAddress, GuestMemoryMmap};
 
 use assertions::const_assert;
-use kvm;
-use kvm_sys::kvm_fpu;
-use kvm_sys::kvm_msr_entry;
-use kvm_sys::kvm_msrs;
-use kvm_sys::kvm_regs;
-use kvm_sys::kvm_sregs;
 use sys_util::{self, LayoutAllocation};
+
+use vmm_vcpu::vcpu::Vcpu;
+use vmm_vcpu::x86_64::{FpuState, MsrEntries, SpecialRegisters, StandardRegisters,
+                       MsrEntry};
 
 use crate::gdt;
 
 #[derive(Debug)]
 pub enum Error {
     /// Setting up msrs failed.
-    MsrIoctlFailed(sys_util::Error),
+    MsrIoctlFailed(io::Error),
     /// Failed to configure the FPU.
-    FpuIoctlFailed(sys_util::Error),
+    FpuIoctlFailed(io::Error),
     /// Failed to get sregs for this cpu.
-    GetSRegsIoctlFailed(sys_util::Error),
+    GetSRegsIoctlFailed(io::Error),
     /// Failed to set base registers for this cpu.
-    SettingRegistersIoctl(sys_util::Error),
+    SettingRegistersIoctl(io::Error),
     /// Failed to set sregs for this cpu.
-    SetSRegsIoctlFailed(sys_util::Error),
+    SetSRegsIoctlFailed(io::Error),
     /// Writing the GDT to RAM failed.
     WriteGDTFailure,
     /// Writing the IDT to RAM failed.
@@ -67,57 +65,57 @@ impl Display for Error {
     }
 }
 
-fn create_msr_entries() -> Vec<kvm_msr_entry> {
-    let mut entries = Vec::<kvm_msr_entry>::new();
+fn create_msr_entries() -> Vec<MsrEntry> {
+    let mut entries = Vec::<MsrEntry>::new();
 
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_IA32_SYSENTER_CS,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_IA32_SYSENTER_ESP,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_IA32_SYSENTER_EIP,
         data: 0x0,
         ..Default::default()
     });
     // x86_64 specific msrs, we only run on x86_64 not x86
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_STAR,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_CSTAR,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_KERNEL_GS_BASE,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_SYSCALL_MASK,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_LSTAR,
         data: 0x0,
         ..Default::default()
     });
     // end of x86_64 specific code
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_IA32_TSC,
         data: 0x0,
         ..Default::default()
     });
-    entries.push(kvm_msr_entry {
+    entries.push(MsrEntry {
         index: crate::msr_index::MSR_IA32_MISC_ENABLE,
         data: crate::msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
         ..Default::default()
@@ -131,11 +129,11 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
-pub fn setup_msrs(vcpu: &kvm::Vcpu) -> Result<()> {
-    const SIZE_OF_MSRS: usize = mem::size_of::<kvm_msrs>();
-    const SIZE_OF_ENTRY: usize = mem::size_of::<kvm_msr_entry>();
-    const ALIGN_OF_MSRS: usize = mem::align_of::<kvm_msrs>();
-    const ALIGN_OF_ENTRY: usize = mem::align_of::<kvm_msr_entry>();
+pub fn setup_msrs<T: Vcpu>(vcpu: &T) -> Result<()> {
+    const SIZE_OF_MSRS: usize = mem::size_of::<MsrEntries>();
+    const SIZE_OF_ENTRY: usize = mem::size_of::<MsrEntry>();
+    const ALIGN_OF_MSRS: usize = mem::align_of::<MsrEntries>();
+    const ALIGN_OF_ENTRY: usize = mem::align_of::<MsrEntry>();
     const_assert!(ALIGN_OF_MSRS >= ALIGN_OF_ENTRY);
 
     let entry_vec = create_msr_entries();
@@ -145,12 +143,12 @@ pub fn setup_msrs(vcpu: &kvm::Vcpu) -> Result<()> {
 
     // Safe to obtain an exclusive reference because there are no other
     // references to the allocation yet and all-zero is a valid bit pattern.
-    let msrs = unsafe { allocation.as_mut::<kvm_msrs>() };
+    let msrs = unsafe { allocation.as_mut::<MsrEntries>() };
 
     unsafe {
         // Mapping the unsized array to a slice is unsafe becase the length isn't known.  Providing
         // the length used to create the struct guarantees the entire slice is valid.
-        let entries: &mut [kvm_msr_entry] = msrs.entries.as_mut_slice(entry_vec.len());
+        let entries: &mut [MsrEntry] = msrs.entries.as_mut_slice(entry_vec.len());
         entries.copy_from_slice(&entry_vec);
     }
     msrs.nmsrs = entry_vec.len() as u32;
@@ -167,8 +165,8 @@ pub fn setup_msrs(vcpu: &kvm::Vcpu) -> Result<()> {
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
-pub fn setup_fpu(vcpu: &kvm::Vcpu) -> Result<()> {
-    let fpu: kvm_fpu = kvm_fpu {
+pub fn setup_fpu<T: Vcpu>(vcpu: &T) -> Result<()> {
+    let fpu: FpuState = FpuState {
         fcw: 0x37f,
         mxcsr: 0x1f80,
         ..Default::default()
@@ -187,8 +185,8 @@ pub fn setup_fpu(vcpu: &kvm::Vcpu) -> Result<()> {
 /// * `boot_ip` - Starting instruction pointer.
 /// * `boot_sp` - Starting stack pointer.
 /// * `boot_si` - Must point to zero page address per Linux ABI.
-pub fn setup_regs(vcpu: &kvm::Vcpu, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
-    let regs: kvm_regs = kvm_regs {
+pub fn setup_regs<T: Vcpu>(vcpu: &T, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
+    let regs: StandardRegisters = StandardRegisters {
         rflags: 0x0000000000000002u64,
         rip: boot_ip,
         rsp: boot_sp,
@@ -234,7 +232,7 @@ fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<()> {
         .map_err(|_| Error::WriteIDTFailure)
 }
 
-fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
+fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut SpecialRegisters) -> Result<()> {
     let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
         gdt::gdt_entry(0, 0, 0),            // NULL
         gdt::gdt_entry(0xa09b, 0, 0xfffff), // CODE
@@ -242,9 +240,9 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
         gdt::gdt_entry(0x808b, 0, 0xfffff), // TSS
     ];
 
-    let code_seg = gdt::kvm_segment_from_gdt(gdt_table[1], 1);
-    let data_seg = gdt::kvm_segment_from_gdt(gdt_table[2], 2);
-    let tss_seg = gdt::kvm_segment_from_gdt(gdt_table[3], 3);
+    let code_seg = gdt::segment_from_gdt(gdt_table[1], 1);
+    let data_seg = gdt::segment_from_gdt(gdt_table[2], 2);
+    let tss_seg = gdt::segment_from_gdt(gdt_table[3], 3);
 
     // Write segments
     write_gdt_table(&gdt_table[..], mem)?;
@@ -270,7 +268,7 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
     Ok(())
 }
 
-fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
+fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut SpecialRegisters) -> Result<()> {
     // Puts PML4 right after zero page but aligned to 4k.
     let boot_pml4_addr = GuestAddress(0x9000);
     let boot_pdpte_addr = GuestAddress(0xa000);
@@ -303,8 +301,8 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
 ///
 /// * `mem` - The memory that will be passed to the guest.
 /// * `vcpu_fd` - The FD returned from the KVM_CREATE_VCPU ioctl.
-pub fn setup_sregs(mem: &GuestMemoryMmap, vcpu: &kvm::Vcpu) -> Result<()> {
-    let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::GetSRegsIoctlFailed)?;
+pub fn setup_sregs<T: Vcpu>(mem: &GuestMemoryMmap, vcpu: &T) -> Result<()> {
+    let mut sregs: SpecialRegisters = vcpu.get_sregs().map_err(Error::GetSRegsIoctlFailed)?;
 
     configure_segments_and_sregs(mem, &mut sregs)?;
     setup_page_tables(mem, &mut sregs)?; // TODO(dgreid) - Can this be done once per system instead?
@@ -330,7 +328,7 @@ mod tests {
 
     #[test]
     fn segments_and_sregs() {
-        let mut sregs: kvm_sregs = Default::default();
+        let mut sregs: SpecialRegisters = Default::default();
         let gm = create_guest_mem();
         configure_segments_and_sregs(&gm, &mut sregs).unwrap();
 
@@ -355,7 +353,7 @@ mod tests {
 
     #[test]
     fn page_tables() {
-        let mut sregs: kvm_sregs = Default::default();
+        let mut sregs: SpecialRegisters = Default::default();
         let gm = create_guest_mem();
         setup_page_tables(&gm, &mut sregs).unwrap();
 

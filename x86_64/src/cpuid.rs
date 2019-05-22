@@ -4,16 +4,20 @@
 
 use std::fmt::{self, Display};
 use std::result;
+use std::io;
 
-use kvm;
+use whp::{WhpManager};
 use sys_util;
 
+use vmm_vcpu::x86_64::CpuId;
+use vmm_vcpu::vcpu::Vcpu;
+
+/*
 #[derive(Debug, PartialEq)]
 pub enum Error {
     GetSupportedCpusFailed(sys_util::Error),
     SetSupportedCpusFailed(sys_util::Error),
 }
-pub type Result<T> = result::Result<T, Error>;
 
 impl std::error::Error for Error {}
 
@@ -27,6 +31,9 @@ impl Display for Error {
         }
     }
 }
+*/
+pub type Result<T> = result::Result<T, io::Error>;
+
 
 // This function is implemented in C because stable rustc does not
 // support inline assembly.
@@ -50,8 +57,8 @@ const ECX_EPB_SHIFT: u32 = 3; // "Energy Performance Bias" bit.
 const ECX_HYPERVISOR_SHIFT: u32 = 31; // Flag to be set when the cpu is running on a hypervisor.
 const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
 
-fn filter_cpuid(cpu_id: u64, cpu_count: u64, kvm_cpuid: &mut kvm::CpuId) -> Result<()> {
-    let entries = kvm_cpuid.mut_entries_slice();
+fn filter_cpuid(cpu_id: u64, cpu_count: u64, cpuid: &mut CpuId) -> Result<()> {
+    let entries = cpuid.mut_entries_slice();
 
     for entry in entries {
         match entry.function {
@@ -106,19 +113,22 @@ fn filter_cpuid(cpu_id: u64, cpu_count: u64, kvm_cpuid: &mut kvm::CpuId) -> Resu
 ///
 /// # Arguments
 ///
-/// * `kvm` - `Kvm` structure created with KVM_CREATE_VM ioctl.
+/// * `whp` - `WhpManager` structure 
 /// * `vcpu` - `Vcpu` for setting CPU ID.
 /// * `cpu_id` - The index of the CPU `vcpu` is for.
 /// * `nrcpus` - The number of vcpus being used by this VM.
-pub fn setup_cpuid(kvm: &kvm::Kvm, vcpu: &kvm::Vcpu, cpu_id: u64, nrcpus: u64) -> Result<()> {
-    let mut kvm_cpuid = kvm
-        .get_supported_cpuid()
-        .map_err(Error::GetSupportedCpusFailed)?;
+pub fn setup_cpuid<T: Vcpu>(whp: &WhpManager, vcpu: &T, cpu_id: u64, nrcpus: u64) -> Result<()> {
+    let mut cpuid = whp 
+        .get_supported_cpuid().unwrap();
+        //.map_err(Error::GetSupportedCpusFailed)?;
 
-    filter_cpuid(cpu_id, nrcpus, &mut kvm_cpuid)?;
+    filter_cpuid(cpu_id, nrcpus, &mut cpuid)?;
 
-    vcpu.set_cpuid2(&kvm_cpuid)
-        .map_err(Error::SetSupportedCpusFailed)
+    vcpu.set_cpuid2(&cpuid)?;
+        //.map_err(SetSupportedCpusFailed);
+
+    Ok(())
+    
 }
 
 #[cfg(test)]
@@ -127,7 +137,7 @@ mod tests {
 
     #[test]
     fn feature_and_vendor_name() {
-        let mut cpuid = kvm::CpuId::new(2);
+        let mut cpuid = CpuId::new(2);
 
         let entries = cpuid.mut_entries_slice();
         entries[0].function = 0;

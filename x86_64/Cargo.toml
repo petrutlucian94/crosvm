@@ -12,13 +12,21 @@ byteorder = "*"
 devices = { path = "../devices" }
 kernel_cmdline = { path = "../kernel_cmdline" }
 kernel_loader = { path = "../kernel_loader" }
-kvm = { path = "../kvm" }
 kvm_sys = { path = "../kvm_sys" }
 libc = "*"
 remain = "*"
 resources = { path = "../resources" }
 sync = { path = "../sync" }
 sys_util = { path = "../sys_util" }
+
+vmm-vcpu = { path = "../vmm-vcpu" }
+
+[target.'cfg(unix)'.dependencies]
+kvm = { path = "../kvm" }
+
+[target.'cfg(windows)'.dependencies]
+whp = { path = "../whp" }
+libwhp = { path = "../libwhp" }
 
 [dependencies.vm-memory]
 path = "../vm-memory"

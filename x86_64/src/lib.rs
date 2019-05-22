@@ -60,11 +60,18 @@ use std::sync::Arc;
 
 use vm_memory::{GuestAddress, GuestMemory, Address, Bytes, GuestMemoryMmap, GuestMemoryError};
 
+use vmm_vcpu::vcpu::Vcpu;
+
 use crate::bootparam::boot_params;
 use crate::bootparam::E820_RAM;
 use arch::{RunnableLinuxVm, VmComponents};
 use devices::{PciConfigIo, PciDevice, PciInterruptPin};
-use kvm::*;
+
+#[cfg(windows)]
+use whp::*;
+#[cfg(windows)]
+use libwhp::{VirtualProcessor};
+
 use remain::sorted;
 use resources::SystemAllocator;
 use sync::Mutex;
@@ -95,7 +102,7 @@ pub enum Error {
     RegisterVsock(arch::DeviceRegistrationError),
     SetLint(interrupts::Error),
     SetTssAddr(sys_util::Error),
-    SetupCpuid(cpuid::Error),
+    SetupCpuid(io::Error),
     SetupFpu(regs::Error),
     SetupGuestMemory(GuestMemoryError),
     SetupMptable(mptable::Error),
@@ -298,16 +305,16 @@ impl arch::LinuxArch for X8664arch {
         let mut resources =
             Self::get_resource_allocator(components.memory_size);
         let mem = Self::setup_memory(components.memory_size)?;
-        let kvm = Kvm::new().map_err(Error::CreateKvm)?;
-        let mut vm = Self::create_vm(&kvm, split_irqchip, mem.clone())?;
+        let whp = WhpManager::new().map_err(Error::CreateKvm)?;
+        let mut vm = Self::create_vm(&whp, split_irqchip, mem.clone())?;
 
         let vcpu_count = components.vcpu_count;
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_id in 0..vcpu_count {
-            let vcpu = Vcpu::new(cpu_id as libc::c_ulong, &kvm, &vm).map_err(Error::CreateVcpu)?;
+            let vcpu = VirtualProcessor::new(cpu_id as libc::c_ulong, &whp, &vm).map_err(Error::CreateVcpu)?;
             Self::configure_vcpu(
                 vm.get_memory(),
-                &kvm,
+                &whp,
                 &vm,
                 &vcpu,
                 cpu_id as u64,
@@ -359,7 +366,7 @@ impl arch::LinuxArch for X8664arch {
 
         Ok(RunnableLinuxVm {
             vm,
-            kvm,
+            whp,
             resources,
             stdio_serial,
             exit_evt,
@@ -442,11 +449,11 @@ impl X8664arch {
     ///
     /// # Arguments
     ///
-    /// * `kvm` - The opened /dev/kvm object.
+    /// * `whp` - The WhpManager object
     /// * `split_irqchip` - Whether to use a split IRQ chip.
     /// * `mem` - The memory to be used by the guest.
-    fn create_vm(kvm: &Kvm, split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
-        let vm = Vm::new(&kvm, mem).map_err(Error::CreateVm)?;
+    fn create_vm(whp: &WhpManager, split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
+        let vm = Vm::new(&whp, mem).map_err(Error::CreateVm)?;
         let tss_addr = GuestAddress(0xfffbd000);
         vm.set_tss_addr(tss_addr).map_err(Error::SetTssAddr)?;
         if !split_irqchip {
@@ -472,7 +479,7 @@ impl X8664arch {
     /// # Arguments
     ///
     /// * `vm` - the vm object
-    fn create_irq_chip(_vm: &kvm::Vm) -> Result<Option<File>> {
+    fn create_irq_chip(_vm: &whp::Vm) -> Result<Option<File>> {
         // Unfortunately X86 and ARM have to do this in completely different order
         // X86 needs to create the irq chip before creating cpus and
         // ARM needs to do it afterwards.
@@ -640,21 +647,22 @@ impl X8664arch {
     /// * `guest_mem` - The memory to be used by the guest.
     /// * `kernel_load_offset` - Offset in bytes from `guest_mem` at which the
     ///                          kernel starts.
-    /// * `kvm` - The /dev/kvm object that created vcpu.
+    /// * `whp` - The WhpManager object
     /// * `vm` - The VM object associated with this VCPU.
     /// * `vcpu` - The VCPU object to configure.
     /// * `cpu_id` - The id of the given `vcpu`.
     /// * `num_cpus` - Number of virtual CPUs the guest will have.
-    fn configure_vcpu(
+    fn configure_vcpu<T: Vcpu>(
         guest_mem: &GuestMemoryMmap,
-        kvm: &Kvm,
+        whp: &WhpManager,
         _vm: &Vm,
-        vcpu: &Vcpu,
+        vcpu: &T,
         cpu_id: u64,
         num_cpus: u64,
     ) -> Result<()> {
         let kernel_load_addr = GuestAddress(KERNEL_START_OFFSET);
-        cpuid::setup_cpuid(kvm, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
+        //cpuid::setup_cpuid(whp, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
+        cpuid::setup_cpuid(whp, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
         regs::setup_msrs(vcpu).map_err(Error::SetupMsrs)?;
         let kernel_end = guest_mem
             .checked_offset(kernel_load_addr, KERNEL_64BIT_ENTRY_OFFSET as usize)
