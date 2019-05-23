@@ -75,7 +75,7 @@ use libwhp::{VirtualProcessor};
 use remain::sorted;
 use resources::SystemAllocator;
 use sync::Mutex;
-use sys_util::{EventFd};
+use sys_util::{EventFd, Clock};
 
 #[sorted]
 #[derive(Debug)]
@@ -89,7 +89,7 @@ pub enum Error {
     CreateKvm(sys_util::Error),
     CreatePciRoot(arch::DeviceRegistrationError),
     CreatePit(sys_util::Error),
-    // CreatePitDevice(devices::PitError),
+    CreatePitDevice(devices::PitError),
     CreateSocket(io::Error),
     CreateVcpu(sys_util::Error),
     CreateVm(sys_util::Error),
@@ -130,7 +130,7 @@ impl Display for Error {
             CreateKvm(e) => write!(f, "failed to open /dev/kvm: {}", e),
             CreatePciRoot(e) => write!(f, "failed to create a PCI root hub: {}", e),
             CreatePit(e) => write!(f, "unable to create PIT: {}", e),
-            // CreatePitDevice(e) => write!(f, "unable to make PIT device: {}", e),
+            CreatePitDevice(e) => write!(f, "unable to make PIT device: {}", e),
             CreateSocket(e) => write!(f, "failed to create socket: {}", e),
             CreateVcpu(e) => write!(f, "failed to create VCPU: {}", e),
             CreateVm(e) => write!(f, "failed to create VM: {}", e),
@@ -596,25 +596,25 @@ impl X8664arch {
             )
             .unwrap();
 
-        // if split_irqchip {
-        //     let pit_evt = EventFd::new().map_err(Error::CreateEventFd)?;
-        //     let pit = Arc::new(Mutex::new(
-        //         devices::Pit::new(
-        //             pit_evt.try_clone().map_err(Error::CloneEventFd)?,
-        //             Arc::new(Mutex::new(Clock::new())),
-        //         )
-        //         .map_err(Error::CreatePitDevice)?,
-        //     ));
-        //     // Reserve from 0x40 to 0x61 (the speaker).
-        //     io_bus.insert(pit.clone(), 0x040, 0x22, false).unwrap();
-        //     vm.register_irqfd(&pit_evt, 0)
-        //         .map_err(Error::RegisterIrqfd)?;
-        // } else {
         // TODO(lpetrut): figure out if we need/want to emulate PIC/PIT devices.
-        io_bus
-            .insert(nul_device.clone(), 0x040, 0x8, false)
-            .unwrap(); // ignore pit
-        // }
+        if split_irqchip {
+            let pit_evt = EventFd::new().map_err(Error::CreateEventFd)?;
+            let pit = Arc::new(Mutex::new(
+                devices::Pit::new(
+                    pit_evt.try_clone().map_err(Error::CloneEventFd)?,
+                    Arc::new(Mutex::new(Clock::new())),
+                )
+                .map_err(Error::CreatePitDevice)?,
+            ));
+            // Reserve from 0x40 to 0x61 (the speaker).
+            io_bus.insert(pit.clone(), 0x040, 0x22, false).unwrap();
+            vm.register_irqfd(&pit_evt, 0)
+                .map_err(Error::RegisterIrqfd)?;
+        } else {
+            io_bus
+                .insert(nul_device.clone(), 0x040, 0x8, false)
+                .unwrap(); // ignore pit
+        }
 
         io_bus
             .insert(nul_device.clone(), 0x0ed, 0x1, false)
