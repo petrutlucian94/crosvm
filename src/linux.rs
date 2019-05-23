@@ -14,7 +14,6 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use std::thread::JoinHandle;
 
-use libc::{self};
 use vm_memory::{GuestMemoryMmap};
 
 use devices::virtio::{self, VirtioDevice};
@@ -225,9 +224,13 @@ fn run_vcpu (
     io_bus: devices::Bus,
     mmio_bus: devices::Bus,
     exit_evt: EventFd,
-    requires_kvmclock_ctrl: bool,
     run_mode_arc: Arc<VcpuRunMode>,
 ) -> Result<JoinHandle<()>> {
+    thread::Builder::new()
+        .name(format!("crosvm_vcpu{}", cpu_id))
+        .spawn(|| {})
+        .map_err(Error::SpawnVcpu)
+    /*
     thread::Builder::new()
         .name(format!("crosvm_vcpu{}", cpu_id))
         .spawn(move || {
@@ -235,6 +238,10 @@ fn run_vcpu (
 
             'vcpu_loop: loop {
                 match vcpu.run() {
+                    /* TODO: Rewrite these to use Firecracker/Vcpu-like IoIn/IoOut.
+                       This requires additional processing within run, instead
+                       of the "set_data" approach used in crosvm
+        
                     Ok(VcpuExit::IoIn { port, mut size }) => {
                         let mut data = [0; 8];
                         if size > data.len() {
@@ -270,17 +277,12 @@ fn run_vcpu (
                     }) => {
                         mmio_bus.write(address, &data[..size]);
                     }
+                    */
                     Ok(VcpuExit::Hlt) => break,
                     Ok(VcpuExit::Shutdown) => break,
                     Ok(VcpuExit::SystemEvent(_, _)) => break,
                     Ok(r) => warn!("unexpected vcpu exit: {:?}", r),
-                    Err(e) => match e.errno() {
-                        libc::EAGAIN => {}
-                        _ => {
-                            error!("vcpu hit unknown error: {}", e);
-                            break;
-                        }
-                    },
+                    Err(e) => error!("vcpu hit unknown error: {}", e),
                 }
             }
             exit_evt
@@ -288,6 +290,7 @@ fn run_vcpu (
                 .expect("failed to signal vcpu exit eventfd");
         })
         .map_err(Error::SpawnVcpu)
+        */
 }
 
 // Reads the contents of a file and converts the space-separated fields into a Vec of u64s.
@@ -381,7 +384,6 @@ fn run_control(
             linux.io_bus.clone(),
             linux.mmio_bus.clone(),
             linux.exit_evt.try_clone().map_err(Error::CloneEventFd)?,
-            linux.vm.check_extension(Cap::KvmclockCtrl),
             run_mode_arc.clone(),
         )?;
         vcpu_handles.push(handle);
