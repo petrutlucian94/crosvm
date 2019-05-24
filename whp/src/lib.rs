@@ -246,11 +246,9 @@ pub struct Vm {
     partition: Partition,
     mappings: Vec<GPARangeMapping>,
 
-    /*
     guest_mem: GuestMemoryMmap,
-    device_memory: HashMap<u32, MmapRegion>,
-    mem_slot_gaps: BinaryHeap<MemSlot>,
-    */
+    // device_memory: HashMap<u32, MmapRegion>,
+    // mem_slot_gaps: BinaryHeap<MemSlot>,
 }
 
 impl Default for Vm {
@@ -264,16 +262,9 @@ impl Vm {
     /// TODO: Currently working through this/not complete
     pub fn new(whp: &WhpManager, guest_mem: GuestMemoryMmap) -> Result<Vm> {
         let mut partition = Partition::new().unwrap();
-        let mut vm: Vm = Default::default();
+        let mut mappings = Vec::new();
 
-        vm.partition = partition;
-        vm.mappings = Vec::new();
-
-        // set_guest_memory(self, guest_memory: &GuestMemoryMmap)
-        // Process all memory regions
-        // TODO: RESUME HERE
-        /*
-        guest_mem.with_regions_mut(|_index, region| {
+        guest_mem.with_regions_mut::<_, ()>(|_index, region| {
             // MemoryRegionRef implements the libwhp::Memory trait
             let region_ref = MemoryRegionRef::new(region);
 
@@ -287,13 +278,16 @@ impl Vm {
                         | WHV_MAP_GPA_RANGE_FLAGS::WHvMapGpaRangeFlagWrite
                         | WHV_MAP_GPA_RANGE_FLAGS::WHvMapGpaRangeFlagExecute,
                 ).unwrap();
-            
-           vm.mappings.push(mapping);
-           Ok(())
-        })?;
-        */
 
-        Ok(vm)
+           mappings.push(mapping);
+           Ok(())
+        }).unwrap();
+
+        Ok(Vm{
+            partition,
+            mappings,
+            guest_mem
+        })
     }
 
     /// Checks if a particular `Cap` is available.
@@ -351,7 +345,7 @@ impl Vm {
     /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after
     /// this VM was constructed.
     pub fn get_memory(&self) -> &GuestMemoryMmap {
-        panic!("Not Implemented")
+        &self.guest_mem
     }
 
     /// Sets the address of the three-page region in the VM's address space.
@@ -553,17 +547,6 @@ impl Vm {
     /// `set_gsi_routing`.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_gsi_routing(&self, routes: &[IrqRoute]) -> Result<()> {
-        panic!("Not Implemented")
-    }
-
-    /// Does KVM_CREATE_DEVICE for a generic device.
-    pub fn create_device(&self, device: &mut CreateDevice) -> Result<()> {
-        panic!("Not Implemented")
-    }
-
-    /// This queries the kernel for the preferred target CPU type.
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn arm_preferred_target(&self, kvi: &mut kvm_vcpu_init) -> Result<()> {
         panic!("Not Implemented")
     }
 
