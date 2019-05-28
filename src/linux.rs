@@ -217,7 +217,7 @@ impl VcpuRunMode {
 }
 
 fn run_vcpu (
-    vcpu: VirtualProcessor,
+    vcpu: WhpVirtualProcessor,
     cpu_id: u32,
     _vcpu_affinity: Vec<usize>,
     start_barrier: Arc<Barrier>,
@@ -226,21 +226,24 @@ fn run_vcpu (
     exit_evt: EventFd,
     run_mode_arc: Arc<VcpuRunMode>,
 ) -> Result<JoinHandle<()>> {
-    thread::Builder::new()
-        .name(format!("crosvm_vcpu{}", cpu_id))
-        .spawn(|| {})
-        .map_err(Error::SpawnVcpu)
-    /*
+    //TODO: Fix Io/MMio as well as the Partition
     thread::Builder::new()
         .name(format!("crosvm_vcpu{}", cpu_id))
         .spawn(move || {
             start_barrier.wait();
 
+            // Create a WhpVcpuRun here out of the vcpu
+            // Call that struct's run()
+
+            let whp_vcpu_run = WhpVcpuRun::new(&vcpu);
+
+            /* // TODO: Continue here 
             'vcpu_loop: loop {
-                match vcpu.run() {
+                match whp_vcpu_run.run() {
                     /* TODO: Rewrite these to use Firecracker/Vcpu-like IoIn/IoOut.
                        This requires additional processing within run, instead
                        of the "set_data" approach used in crosvm
+                    */
         
                     Ok(VcpuExit::IoIn { port, mut size }) => {
                         let mut data = [0; 8];
@@ -277,7 +280,6 @@ fn run_vcpu (
                     }) => {
                         mmio_bus.write(address, &data[..size]);
                     }
-                    */
                     Ok(VcpuExit::Hlt) => break,
                     Ok(VcpuExit::Shutdown) => break,
                     Ok(VcpuExit::SystemEvent(_, _)) => break,
@@ -285,12 +287,12 @@ fn run_vcpu (
                     Err(e) => error!("vcpu hit unknown error: {}", e),
                 }
             }
+            */
             exit_evt
                 .write(1)
                 .expect("failed to signal vcpu exit eventfd");
         })
         .map_err(Error::SpawnVcpu)
-        */
 }
 
 // Reads the contents of a file and converts the space-separated fields into a Vec of u64s.

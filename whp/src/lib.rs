@@ -13,24 +13,27 @@ extern crate vm_memory;
 mod cap;
 
 use std::cmp::{Ordering};
-use std::collections::{BinaryHeap, HashMap};
-use std::fs::File;
+use std::io;
+//use std::collections::{BinaryHeap, HashMap};
+//use std::fs::File;
 use std::mem::size_of;
 use std::os::raw::*;
 
 use vm_memory::*;
 
-use kvm_sys::*;
+//use kvm_sys::*;
 
 use sys_util::{
-    pagesize, Error, EventFd, Result,
+    pagesize, EventFd, Result,
 };
 
 pub use crate::cap::*;
 
 use libwhp::whp_vcpu::*;
 use libwhp::memory::*;
-use libwhp::{VirtualProcessor, Partition, GPARangeMapping};
+use libwhp::{Partition, GPARangeMapping};
+use libwhp::whp_vcpu::WhpVirtualProcessor;
+use libwhp::instruction_emulator::*;
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit, Result as VcpuResult};
 use vmm_vcpu::x86_64::{FpuState, MsrEntries, SpecialRegisters, StandardRegisters,
                        LapicState, CpuId};
@@ -112,7 +115,6 @@ pub fn dirty_log_bitmap_size(size: usize) -> usize {
 /// Useful for querying extensions and basic values from the KVM backend. A `WhpManager` is required to
 /// create a `Vm` object.
 pub struct WhpManager {
-    whp: File,
 }
 
 impl WhpManager {
@@ -588,7 +590,7 @@ impl Vm {
 }
 
 pub trait VcpuExtra {
-    fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<Self> where Self: Sized;
+    //fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<Self> where Self: Sized;
     fn get_memory(&self) -> &GuestMemoryMmap;
     fn set_data(&self, data: &[u8]) -> Result<()>;
     fn get_debugregs(&self) -> Result<DebugRegisters>;
@@ -604,13 +606,17 @@ pub trait VcpuExtra {
     fn interrupt(&self, irq: u32) -> Result<()>;
 }
 
-impl VcpuExtra for VirtualProcessor {
+impl VcpuExtra for WhpVirtualProcessor {
     /// Constructs a new VCPU for `vm`.
     ///
     /// The `id` argument is the CPU number between [0, max vcpus).
-    fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<VirtualProcessor> {
-        unimplemented!();
+    /*
+    fn new(id: c_ulong, _whp: &WhpManager, vm: &Vm) -> Result<WhpVirtualProcessor> {
+        let vp = vm.partition.create_virtual_processor(id).unwrap();
+        let wvp = WhpVirtualProcessor::new(vp);
+        Ok(wvp)
     }
+    */
 
     /// Gets a reference to the guest memory owned by this VM of this VCPU.
     ///
@@ -749,8 +755,137 @@ impl VcpuExtra for VirtualProcessor {
         interrupt.Destination = 0;
         interrupt.Vector = irq;
 
-        self.request_interrupt(&mut interrupt).unwrap();
+        self.vp.borrow().request_interrupt(&mut interrupt).unwrap();
 
         Ok(())
+    }
+}
+
+struct WhpVcpuRun<'a> {
+    vp: &'a WhpVirtualProcessor,
+    exit_context: *const WHV_RUN_VP_EXIT_CONTEXT,
+    io_data: [u8; 8],
+    io_data_len: usize,
+    emulator: Emulator<WhpVcpuRun<'a>>,
+}
+
+impl<'a> WhpVcpuRun<'a> {
+    fn new(vp: &WhpVirtualProcessor) -> Self {
+        return WhpVcpuRun {
+            vp: vp,
+            // Safe because it has the same lifetime as WhpVirtualProcessor
+            exit_context: vp.get_run_context(),
+            io_data: Default::default(),
+            io_data_len: 0,
+            emulator: Emulator::<WhpVcpuRun>::new().unwrap(),
+        }
+    }
+
+    /* TODO: Continue here
+    fn run(&self) -> Result<VcpuExit> {
+        let exit_reason = self.vp.run().unwrap();
+        self.exit_context = self.vp.get_run_context();
+
+        Ok(())
+    }
+    */
+}
+
+impl<'a> EmulatorCallbacks for WhpVcpuRun<'a> {
+    fn io_port(
+        &mut self,
+        io_access: &mut WHV_EMULATOR_IO_ACCESS_INFO,
+    ) -> HRESULT {
+        let port = io_access.Port;
+        let data_size_bytes = io_access.AccessSize;
+        let data = unsafe {
+            std::slice::from_raw_parts(
+                &io_access.Data as *const _ as *const u8,
+                io_access.AccessSize as usize,
+            )
+        };
+        S_OK
+    }
+
+    fn memory(
+        &mut self,
+        memory_access: &mut WHV_EMULATOR_MEMORY_ACCESS_INFO,
+    ) -> HRESULT {
+        let addr = memory_access.GpaAddress;
+        match memory_access.AccessSize {
+            8 => match memory_access.Direction {
+                0 => {
+                    let data = &memory_access.Data as *const _ as *mut u64;
+                    unsafe {
+                        *data = 0x1000;
+                        println!("MMIO read: 0x{:x} @0x{:x}", *data, addr);
+                    }
+                }
+                _ => {
+                    let value = unsafe { *(&memory_access.Data as *const _ as *const u64) };
+                    println!("MMIO write: 0x{:x} @0x{:x}", value, addr);
+                }
+            },
+            4 => match memory_access.Direction {
+                0 => {
+                    let data = &memory_access.Data as *const _ as *mut u32;
+                    unsafe {
+                        *data = 0x1000;
+                        println!("MMIO read: 0x{:x} @0x{:x}", *data, addr);
+                    }
+                }
+                _ => {
+                    let value = unsafe { *(&memory_access.Data as *const _ as *const u32) };
+                    println!("MMIO write: 0x{:x} @0x{:x}", value, addr);
+                }
+            },
+            _ => println!("Unsupported MMIO access size: {}", memory_access.AccessSize),
+        }
+
+        S_OK
+    }
+
+    fn get_virtual_processor_registers(
+        &mut self,
+        register_names: &[WHV_REGISTER_NAME],
+        register_values: &mut [WHV_REGISTER_VALUE],
+    ) -> HRESULT {
+        self.vp
+            .vp
+            .borrow()
+            .get_registers(register_names, register_values)
+            .unwrap();
+        S_OK
+    }
+
+    fn set_virtual_processor_registers(
+        &mut self,
+        register_names: &[WHV_REGISTER_NAME],
+        register_values: &[WHV_REGISTER_VALUE],
+    ) -> HRESULT {
+        self.vp
+            .vp
+            .borrow()
+            .set_registers(register_names, register_values)
+            .unwrap();
+        S_OK
+    }
+
+    fn translate_gva_page(
+        &mut self,
+        gva: WHV_GUEST_VIRTUAL_ADDRESS,
+        translate_flags: WHV_TRANSLATE_GVA_FLAGS,
+        translation_result: &mut WHV_TRANSLATE_GVA_RESULT_CODE,
+        gpa: &mut WHV_GUEST_PHYSICAL_ADDRESS,
+    ) -> HRESULT {
+        let (translation_result1, gpa1) = self
+            .vp
+            .vp
+            .borrow()
+            .translate_gva(gva, translate_flags)
+            .unwrap();
+        *translation_result = translation_result1.ResultCode;
+        *gpa = gpa1;
+        S_OK
     }
 }
