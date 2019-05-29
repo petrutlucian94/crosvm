@@ -279,22 +279,6 @@ impl Vm {
         panic!("Not Implemented")
     }
 
-    /// Retrieves the current timestamp of kvmclock as seen by the current guest.
-    ///
-    /// See the documentation on the KVM_GET_CLOCK ioctl.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_clock(&self) -> Result<kvm_clock_data> {
-        panic!("Not Implemented")
-    }
-
-    /// Sets the current timestamp of kvmclock to the specified value.
-    ///
-    /// See the documentation on the KVM_SET_CLOCK ioctl.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn set_clock(&self, clock_data: &kvm_clock_data) -> Result<()> {
-        panic!("Not Implemented")
-    }
-
     /// Crates an in kernel interrupt controller.
     ///
     /// See the documentation on the KVM_CREATE_IRQCHIP ioctl.
