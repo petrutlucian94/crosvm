@@ -28,7 +28,7 @@ use vmm_vcpu::vcpu::{Vcpu, VcpuExit};
 
 #[cfg(windows)]
 use whp::*;
-use libwhp::VirtualProcessor;
+use libwhp::whp_vcpu::WhpVirtualProcessor;
 use crate::{Config, DiskOption};
 
 use arch::{self, LinuxArch, RunnableLinuxVm, VirtioDeviceStub, VmComponents};
@@ -234,8 +234,6 @@ fn run_vcpu (
 
             // Create a WhpVcpuRun here out of the vcpu
             // Call that struct's run()
-
-            let whp_vcpu_run = WhpVcpuRun::new(&vcpu);
 
             /* // TODO: Continue here 
             'vcpu_loop: loop {

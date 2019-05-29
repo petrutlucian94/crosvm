@@ -70,7 +70,9 @@ use devices::{PciConfigIo, PciDevice, PciInterruptPin};
 #[cfg(windows)]
 use whp::*;
 #[cfg(windows)]
-use libwhp::{VirtualProcessor};
+use libwhp::whp_vcpu::WhpVirtualProcessor;
+#[cfg(windows)]
+use libwhp::VirtualProcessor;
 
 use remain::sorted;
 use resources::SystemAllocator;
@@ -311,7 +313,7 @@ impl arch::LinuxArch for X8664arch {
         let vcpu_count = components.vcpu_count;
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_id in 0..vcpu_count {
-            let vcpu = VirtualProcessor::new(cpu_id as libc::c_ulong, &whp, &vm).map_err(Error::CreateVcpu)?;
+            let vcpu = WhpVirtualProcessor::new(cpu_id, &whp, &vm).map_err(Error::CreateVcpu)?;
             Self::configure_vcpu(
                 vm.get_memory(),
                 &whp,

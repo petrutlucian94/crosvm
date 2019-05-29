@@ -18,7 +18,7 @@ use devices::{
     Serial,
 };
 use whp::{IoeventAddress, WhpManager, Vm};
-use libwhp::{VirtualProcessor};
+use libwhp::whp_vcpu::WhpVirtualProcessor;
 use resources::SystemAllocator;
 use sync::Mutex;
 use sys_util::{EventFd};
@@ -41,7 +41,7 @@ pub struct RunnableLinuxVm {
     pub resources: SystemAllocator,
     pub stdio_serial: Arc<Mutex<Serial>>,
     pub exit_evt: EventFd,
-    pub vcpus: Vec<VirtualProcessor>,
+    pub vcpus: Vec<WhpVirtualProcessor>,
     pub vcpu_affinity: Vec<usize>,
     pub irq_chip: Option<File>,
     pub io_bus: Bus,

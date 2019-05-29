@@ -590,7 +590,7 @@ impl Vm {
 }
 
 pub trait VcpuExtra {
-    //fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<Self> where Self: Sized;
+    fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<Self> where Self: Sized;
     fn get_memory(&self) -> &GuestMemoryMmap;
     fn set_data(&self, data: &[u8]) -> Result<()>;
     fn get_debugregs(&self) -> Result<DebugRegisters>;
@@ -610,13 +610,11 @@ impl VcpuExtra for WhpVirtualProcessor {
     /// Constructs a new VCPU for `vm`.
     ///
     /// The `id` argument is the CPU number between [0, max vcpus).
-    /*
     fn new(id: c_ulong, _whp: &WhpManager, vm: &Vm) -> Result<WhpVirtualProcessor> {
         let vp = vm.partition.create_virtual_processor(id).unwrap();
-        let wvp = WhpVirtualProcessor::new(vp);
+        let wvp = WhpVirtualProcessor::create_whp_vcpu(vp);
         Ok(wvp)
     }
-    */
 
     /// Gets a reference to the guest memory owned by this VM of this VCPU.
     ///
@@ -761,6 +759,7 @@ impl VcpuExtra for WhpVirtualProcessor {
     }
 }
 
+/*
 struct WhpVcpuRun<'a> {
     vp: &'a WhpVirtualProcessor,
     exit_context: *const WHV_RUN_VP_EXIT_CONTEXT,
@@ -889,3 +888,4 @@ impl<'a> EmulatorCallbacks for WhpVcpuRun<'a> {
         S_OK
     }
 }
+*/
