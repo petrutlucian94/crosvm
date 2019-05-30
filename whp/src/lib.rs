@@ -595,7 +595,7 @@ impl VcpuExtra for WhpVirtualProcessor {
     /// The `id` argument is the CPU number between [0, max vcpus).
     fn new(id: c_ulong, _whp: &WhpManager, vm: &Vm) -> Result<WhpVirtualProcessor> {
         let vp = vm.partition.create_virtual_processor(id).unwrap();
-        let wvp = WhpVirtualProcessor::create_whp_vcpu(vp);
+        let wvp = WhpVirtualProcessor::create_whp_vcpu(vp).unwrap();
         Ok(wvp)
     }
 
