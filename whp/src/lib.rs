@@ -586,7 +586,6 @@ pub trait VcpuExtra {
     fn set_vcpu_events(&self, events: &VcpuEvents) -> Result<()>;
     fn kvmclock_ctrl(&self) -> Result<()>;
     fn set_signal_mask(&self, signals: &[c_int]) -> Result<()>;
-    fn interrupt(&self, irq: u32) -> Result<()>;
 }
 
 impl VcpuExtra for WhpVirtualProcessor {
@@ -719,25 +718,6 @@ impl VcpuExtra for WhpVirtualProcessor {
     #[allow(unreachable_code)]
     fn set_signal_mask(&self, _signals: &[c_int]) -> Result<()> {
         unimplemented!();
-        Ok(())
-    }
-
-    /// Use request_interrupt to inject the specified interrupt vector.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn interrupt(&self, irq: u32) -> Result<()> {
-        let mut interrupt: WHV_INTERRUPT_CONTROL = Default::default();
-
-        interrupt.set_InterruptType(
-            WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed as UINT64);
-        interrupt.set_DestinationMode(
-            WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModePhysical as UINT64);
-        interrupt.set_TriggerMode(
-            WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge as UINT64);
-        interrupt.Destination = 0;
-        interrupt.Vector = irq;
-
-        self.vp.borrow().request_interrupt(&mut interrupt).unwrap();
-
         Ok(())
     }
 }
