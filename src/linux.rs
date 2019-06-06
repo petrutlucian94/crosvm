@@ -25,6 +25,7 @@ use sys_util::{self, error, warn, EventFd};
 use vm_control::{VmRunMode};
 
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit};
+use vmm_vcpu::x86_64::{StandardRegisters};
 
 #[cfg(windows)]
 use whp::*;
@@ -225,72 +226,104 @@ fn run_vcpu (
     mmio_bus: devices::Bus,
     exit_evt: EventFd,
     run_mode_arc: Arc<VcpuRunMode>,
-) -> Result<JoinHandle<()>> {
-    //TODO: Fix Io/MMio as well as the Partition
+) -> Result<()> {
+//) -> Result<JoinHandle<()>> {
+    //
+    // TODO: We need to resolve/replace the underlying raw pointers in/
+    // VirtualProcessor and WhpVirtualProcessor to something with a Send trait.
+    // For now just make single-threaded.
+    //
+    /*
     thread::Builder::new()
         .name(format!("crosvm_vcpu{}", cpu_id))
         .spawn(move || {
             start_barrier.wait();
 
-            // Create a WhpVcpuRun here out of the vcpu
-            // Call that struct's run()
-
-            /* // TODO: Continue here 
             'vcpu_loop: loop {
-                match whp_vcpu_run.run() {
-                    /* TODO: Rewrite these to use Firecracker/Vcpu-like IoIn/IoOut.
-                       This requires additional processing within run, instead
-                       of the "set_data" approach used in crosvm
-                    */
-        
-                    Ok(VcpuExit::IoIn { port, mut size }) => {
-                        let mut data = [0; 8];
-                        if size > data.len() {
-                            error!("unsupported IoIn size of {} bytes", size);
-                            size = data.len();
-                        }
-                        io_bus.read(port as u64, &mut data[..size]);
-                        if let Err(e) = vcpu.set_data(&data[..size]) {
-                            error!("failed to set return data for IoIn: {}", e);
-                        }
-                    }
-                    Ok(VcpuExit::IoOut {
-                        port,
-                        mut size,
-                        data,
-                    }) => {
-                        if size > data.len() {
-                            error!("unsupported IoOut size of {} bytes", size);
-                            size = data.len();
-                        }
-                        io_bus.write(port as u64, &data[..size]);
-                    }
-                    Ok(VcpuExit::MmioRead { address, size }) => {
-                        let mut data = [0; 8];
-                        mmio_bus.read(address, &mut data[..size]);
-                        // Setting data for mmio can not fail.
-                        let _ = vcpu.set_data(&data[..size]);
-                    }
-                    Ok(VcpuExit::MmioWrite {
-                        address,
-                        size,
-                        data,
-                    }) => {
-                        mmio_bus.write(address, &data[..size]);
-                    }
-                    Ok(VcpuExit::Hlt) => break,
-                    Ok(VcpuExit::Shutdown) => break,
-                    Ok(VcpuExit::SystemEvent(_, _)) => break,
-                    Ok(r) => warn!("unexpected vcpu exit: {:?}", r),
-                    Err(e) => error!("vcpu hit unknown error: {}", e),
+    */
+    loop {
+        match vcpu.run() {
+            Ok(run) => match run {
+                // These first 5 are VMM exits that we share with KVM
+
+                // The rust-vmm kvm-ioctls crate defines IO and MMIO VcpuExit
+                // values the same way the Vcpu crate does. Because we can
+                // assume that crosvm will eventually move to the kvm-ioctls
+                // way (as Firecracker already has), we'll use that format
+                // here in the run function, not the way that it was previously
+                // done in crosvm. (The difference, incidentally, is basically
+                // just where the processing of the data array is done. In this
+                // case, it's done in the run() function itself, whereas original
+                // crosvm code does it in a combination of here and in the
+                // set_data function of Vcpu.)
+                VcpuExit::IoIn(addr, data) => {
+                    io_bus.read(addr as u64, data);
                 }
-            }
-            */
+                VcpuExit::IoOut(addr, data) => {
+                    io_bus.write(addr as u64, data);
+                }
+                VcpuExit::MmioRead(addr, data) => {
+                    mmio_bus.read(addr, data);
+                }
+                VcpuExit::MmioWrite(addr, data) => {
+                    mmio_bus.write(addr, data);
+                }
+                VcpuExit::Hlt => break,
+
+                // These next ones are WHP-specific
+                VcpuExit::MsrAccess => {
+                    // No real analogous reason to use MsrAccess
+                }
+                VcpuExit::CpuId => {
+                    // KVM handles cpuid instructions by setting the default
+                    // values that should be returned as results for each
+                    // feature/leaf on a per-vcpu level, so there is no VcpuExit
+                    // for CPUID instructions.
+                    // WHP provides two mechanisms for handling cpuid instructions:
+                    // setting default results on a partition (VM) level,
+                    // and manually handling them as they arise via handling on
+                    // a CPUID VcpuExit.
+
+                    // The likely best mechanism for handling
+                    // CPUIDs would be to set the defaults at the partition
+                    // level, and then have a function here (or perhaps even in
+                    // whp_vcpu::run()) that passes through those default
+                    // values
+                    handle_cpuid_exit(&vcpu);
+                }
+                VcpuExit::Exception => {
+                    let exit_context = unsafe { *vcpu.get_run_context() };
+                    println!("Exit Reason: {:?}", exit_context.ExitReason);
+                    println!("Exception. Breaking");
+                    break;
+                }
+                r => warn!("unexpected vcpu exit: {:?}", r),
+            },
+            Err(e) => error!("vcpu hit unknown error: {}", e),
+        }
+    }
+    Ok(())
+            /*
             exit_evt
                 .write(1)
                 .expect("failed to signal vcpu exit eventfd");
         })
         .map_err(Error::SpawnVcpu)
+        */
+}
+
+fn handle_cpuid_exit(vcpu: &WhpVirtualProcessor) {
+    let exit_context = unsafe { *vcpu.get_run_context() };
+    let cpuid_access = unsafe { exit_context.anon_union.CpuidAccess };
+    let mut regs: StandardRegisters = vcpu.get_regs().unwrap();
+
+    regs.rip = exit_context.VpContext.Rip + exit_context.VpContext.InstructionLength() as u64;
+    regs.rax = cpuid_access.DefaultResultRax;
+    regs.rbx = cpuid_access.DefaultResultRbx;
+    regs.rcx = cpuid_access.DefaultResultRcx;
+    regs.rdx = cpuid_access.DefaultResultRdx;
+
+    vcpu.set_regs(&regs).unwrap();
 }
 
 // Reads the contents of a file and converts the space-separated fields into a Vec of u64s.
