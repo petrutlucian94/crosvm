@@ -120,7 +120,7 @@ pub struct WhpManager {
 impl WhpManager {
     /// Opens `/dev/kvm/` and returns a WhpManager object on success.
     pub fn new() -> Result<WhpManager> {
-        panic!("Not Implemented")
+        Ok(WhpManager {})
     }
 
     /// Checks if a particular `Cap` is available.
@@ -262,13 +262,59 @@ impl Default for Vm {
 impl Vm {
     /// Constructs a new `Vm` (Partition) using the given `WhpManager` instance.
     /// TODO: Currently working through this/not complete
-    pub fn new(whp: &WhpManager, guest_mem: GuestMemoryMmap) -> Result<Vm> {
+    pub fn new(whp: &WhpManager, guest_mem: GuestMemoryMmap,
+               vcpu_count: usize, enable_apic: bool) -> Result<Vm> {
         let mut partition = Partition::new().unwrap();
+
+        Vm::set_vcpu_count(&mut partition, vcpu_count);
+        if enable_apic {
+            Vm::enable_apic(&mut partition);
+        }
+
+        partition.setup().unwrap();
+
+        let mappings = Vm::setup_guest_memory(&mut partition, &guest_mem).unwrap();
+
+        Ok(Vm {
+            partition,
+            mappings,
+            guest_mem
+        })
+    }
+
+    fn set_vcpu_count(partition: &mut Partition, cpu_count: usize) {
+        let mut property: WHV_PARTITION_PROPERTY = Default::default();
+        property.ProcessorCount = cpu_count as u32;
+
+        partition.set_property(
+            WHV_PARTITION_PROPERTY_CODE::WHvPartitionPropertyCodeProcessorCount,
+            &property,
+        )
+        .unwrap();
+    }
+
+    fn enable_apic(partition: &mut Partition) {
+        let mut property: WHV_PARTITION_PROPERTY = Default::default();
+        property.LocalApicEmulationMode =
+            WHV_X64_LOCAL_APIC_EMULATION_MODE::WHvX64LocalApicEmulationModeXApic;
+
+        partition.set_property(
+            WHV_PARTITION_PROPERTY_CODE::WHvPartitionPropertyCodeLocalApicEmulationMode,
+            &property,
+        )
+        .unwrap();
+    }
+
+
+    fn setup_guest_memory(partition: &mut Partition, guest_mem: &GuestMemoryMmap) ->
+            Result<Vec<GPARangeMapping>> {
         let mut mappings = Vec::new();
 
         guest_mem.with_regions_mut::<_, ()>(|_index, region| {
             // MemoryRegionRef implements the libwhp::Memory trait
             let region_ref = MemoryRegionRef::new(region);
+            println!("Mapping {:?} @ {:#x} [{:#x}]",
+                     region_ref.as_ptr(), region.start_addr().0, region.len());
 
             // Map the memory to the guest
             let mapping = partition
@@ -285,11 +331,7 @@ impl Vm {
            Ok(())
         }).unwrap();
 
-        Ok(Vm{
-            partition,
-            mappings,
-            guest_mem
-        })
+        Ok(mappings)
     }
 
     /// Checks if a particular `Cap` is available.

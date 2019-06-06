@@ -304,13 +304,14 @@ impl arch::LinuxArch for X8664arch {
         ) -> std::result::Result<Vec<Box<dyn PciDevice>>, E>,
         E: StdError + 'static,
     {
+        let vcpu_count = components.vcpu_count;
         let mut resources =
             Self::get_resource_allocator(components.memory_size);
         let mem = Self::setup_memory(components.memory_size)?;
         let whp = WhpManager::new().map_err(Error::CreateKvm)?;
-        let mut vm = Self::create_vm(&whp, split_irqchip, mem.clone())?;
+        let mut vm = Self::create_vm(&whp, vcpu_count as usize,
+                                     split_irqchip, mem.clone())?;
 
-        let vcpu_count = components.vcpu_count;
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_id in 0..vcpu_count {
             let vcpu = WhpVirtualProcessor::new(cpu_id, &whp, &vm).map_err(Error::CreateVcpu)?;
@@ -454,8 +455,9 @@ impl X8664arch {
     /// * `whp` - The WhpManager object
     /// * `split_irqchip` - Whether to use a split IRQ chip.
     /// * `mem` - The memory to be used by the guest.
-    fn create_vm(whp: &WhpManager, split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
-        let vm = Vm::new(&whp, mem).map_err(Error::CreateVm)?;
+    fn create_vm(whp: &WhpManager, vcpu_count: usize,
+                 split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
+        let vm = Vm::new(&whp, mem, vcpu_count, !split_irqchip).map_err(Error::CreateVm)?;
         let tss_addr = GuestAddress(0xfffbd000);
         vm.set_tss_addr(tss_addr).map_err(Error::SetTssAddr)?;
         if !split_irqchip {
