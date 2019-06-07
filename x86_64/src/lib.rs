@@ -459,11 +459,11 @@ impl X8664arch {
                  split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
         let vm = Vm::new(&whp, mem, vcpu_count, !split_irqchip).map_err(Error::CreateVm)?;
         let tss_addr = GuestAddress(0xfffbd000);
-        vm.set_tss_addr(tss_addr).map_err(Error::SetTssAddr)?;
-        if !split_irqchip {
-            vm.create_pit().map_err(Error::CreatePit)?;
-            vm.create_irq_chip().map_err(Error::CreateIrqChip)?;
-        }
+        // vm.set_tss_addr(tss_addr).map_err(Error::SetTssAddr)?;
+        // if !split_irqchip {
+        //     vm.create_pit().map_err(Error::CreatePit)?;
+        //     vm.create_irq_chip().map_err(Error::CreateIrqChip)?;
+        // }
         Ok(vm)
     }
 
@@ -666,7 +666,8 @@ impl X8664arch {
     ) -> Result<()> {
         let kernel_load_addr = GuestAddress(KERNEL_START_OFFSET);
         //cpuid::setup_cpuid(whp, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
-        cpuid::setup_cpuid(whp, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
+        // TODO: cpuid setup. atm cpuid calls won't generate exits.
+        // cpuid::setup_cpuid(whp, vcpu, cpu_id, num_cpus).map_err(Error::SetupCpuid)?;
         regs::setup_msrs(vcpu).map_err(Error::SetupMsrs)?;
         let kernel_end = guest_mem
             .checked_offset(kernel_load_addr, KERNEL_64BIT_ENTRY_OFFSET as usize)
