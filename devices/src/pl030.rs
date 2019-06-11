@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 use std::time::{SystemTime, UNIX_EPOCH};
-use sys_util::{warn, EventFd};
+use sys_util::{warn};
 
-use crate::BusDevice;
+use crate::{BusDevice, InterruptEvent};
 
 // Register offsets
 // Data register
@@ -35,7 +35,7 @@ pub const PL030_AMBA_MASK: u32 = 0x000FFFFF;
 /// An emulated ARM pl030 RTC
 pub struct Pl030 {
     // EventFD to be used to interrupt the guest for an alarm event
-    alarm_evt: EventFd,
+    alarm_evt: InterruptEvent,
 
     // This is the delta we subtract from current time to get the
     // counter value
@@ -59,7 +59,7 @@ fn get_epoch_time() -> u32 {
 
 impl Pl030 {
     /// Constructs a Pl030 device
-    pub fn new(evt: EventFd) -> Pl030 {
+    pub fn new(evt: InterruptEvent) -> Pl030 {
         Pl030 {
             alarm_evt: evt,
             counter_delta_time: get_epoch_time(),

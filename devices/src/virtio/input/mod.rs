@@ -15,6 +15,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use vm_memory::{ByteValued, Le16, Le32};
 use sys_util::{error, warn, EventFd, GuestMemoryMmap, PollContext, PollToken};
 
+use crate::InterruptEvent;
 use self::event_source::{input_event, EvdevEventSource, EventSource, SocketEventSource};
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_INPUT};
 use std::cmp::min;
@@ -388,8 +389,8 @@ struct Worker<T: EventSource> {
     status_queue: Queue,
     guest_memory: GuestMemoryMmap,
     interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
-    interrupt_resample_evt: EventFd,
+    interrupt_evt: InterruptEvent,
+    interrupt_resample_evt: InterruptEvent,
 }
 
 impl<T: EventSource> Worker<T> {
@@ -615,8 +616,8 @@ where
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt_evt: EventFd,
-        interrupt_resample_evt: EventFd,
+        interrupt_evt: InterruptEvent,
+        interrupt_resample_evt: InterruptEvent,
         status: Arc<AtomicUsize>,
         mut queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,

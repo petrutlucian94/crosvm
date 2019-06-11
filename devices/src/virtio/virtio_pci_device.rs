@@ -18,6 +18,7 @@ use crate::pci::{
     PciBarConfiguration, PciCapability, PciCapabilityID, PciClassCode, PciConfiguration, PciDevice,
     PciDeviceError, PciHeaderType, PciInterruptPin, PciSubclass,
 };
+use crate::InterruptEvent;
 
 use self::virtio_pci_common_config::VirtioPciCommonConfig;
 
@@ -155,8 +156,8 @@ pub struct VirtioPciDevice {
     device_activated: bool,
 
     interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: Option<EventFd>,
-    interrupt_resample_evt: Option<EventFd>,
+    interrupt_evt: Option<InterruptEvent>,
+    interrupt_resample_evt: Option<InterruptEvent>,
     queues: Vec<Queue>,
     queue_evts: Vec<EventFd>,
     mem: Option<GuestMemoryMmap>,
@@ -221,7 +222,7 @@ impl VirtioPciDevice {
     }
 
     /// Gets the event this device uses to interrupt the VM when the used queue is changed.
-    pub fn interrupt_evt(&self) -> Option<&EventFd> {
+    pub fn interrupt_evt(&self) -> Option<&InterruptEvent> {
         self.interrupt_evt.as_ref()
     }
 
@@ -309,8 +310,8 @@ impl PciDevice for VirtioPciDevice {
 
     fn assign_irq(
         &mut self,
-        irq_evt: EventFd,
-        irq_resample_evt: EventFd,
+        irq_evt: InterruptEvent,
+        irq_resample_evt: InterruptEvent,
         irq_num: u32,
         irq_pin: PciInterruptPin,
     ) {
@@ -501,7 +502,7 @@ impl PciDevice for VirtioPciDevice {
             if let Some(interrupt_evt) = self.interrupt_evt.take() {
                 if let Some(interrupt_resample_evt) = self.interrupt_resample_evt.take() {
                     if let Some(mem) = self.mem.take() {
-                        self.device.activate(
+                    self.device.activate(
                             mem,
                             interrupt_evt,
                             interrupt_resample_evt,

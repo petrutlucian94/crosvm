@@ -5,9 +5,9 @@
 use std::collections::VecDeque;
 use std::io;
 
-use sys_util::{error, EventFd, Result};
+use sys_util::{error, Result};
 
-use crate::BusDevice;
+use crate::{BusDevice, InterruptEvent};
 
 const LOOP_SIZE: usize = 0x40;
 
@@ -51,7 +51,7 @@ const DEFAULT_BAUD_DIVISOR: u16 = 12; // 9600 bps
 pub struct Serial {
     interrupt_enable: u8,
     interrupt_identification: u8,
-    interrupt_evt: EventFd,
+    interrupt_evt: InterruptEvent,
     line_control: u8,
     line_status: u8,
     modem_control: u8,
@@ -63,7 +63,7 @@ pub struct Serial {
 }
 
 impl Serial {
-    fn new(interrupt_evt: EventFd, out: Option<Box<dyn io::Write + Send>>) -> Serial {
+    fn new(interrupt_evt: InterruptEvent, out: Option<Box<dyn io::Write + Send>>) -> Serial {
         Serial {
             interrupt_enable: 0,
             interrupt_identification: DEFAULT_INTERRUPT_IDENTIFICATION,
@@ -80,12 +80,12 @@ impl Serial {
     }
 
     /// Constructs a Serial port ready for output.
-    pub fn new_out(interrupt_evt: EventFd, out: Box<dyn io::Write + Send>) -> Serial {
+    pub fn new_out(interrupt_evt: InterruptEvent, out: Box<dyn io::Write + Send>) -> Serial {
         Self::new(interrupt_evt, Some(out))
     }
 
     /// Constructs a Serial port with no connected output.
-    pub fn new_sink(interrupt_evt: EventFd) -> Serial {
+    pub fn new_sink(interrupt_evt: InterruptEvent) -> Serial {
         Self::new(interrupt_evt, None)
     }
 
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn serial_output() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = InterruptEvent::new().unwrap();
         let serial_out = SharedBuffer::new();
 
         let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn serial_input() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = InterruptEvent::new().unwrap();
         let serial_out = SharedBuffer::new();
 
         let mut serial =

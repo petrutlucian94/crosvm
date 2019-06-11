@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+extern crate sys_util;
 extern crate vm_memory;
+extern crate whp;
 
 use std::error::Error as StdError;
 use std::fmt::{self, Display};
@@ -22,6 +24,13 @@ use libwhp::whp_vcpu::WhpVirtualProcessor;
 use resources::SystemAllocator;
 use sync::Mutex;
 use sys_util::{EventFd};
+
+#[cfg(unix)]
+pub type InterruptEvent = sys_util::EventFd;
+
+#[cfg(windows)]
+pub use whp::{InterruptEvent};
+
 
 /// Holds the pieces needed to build a VM. Passed to `build_vm` in the `LinuxArch` trait below to
 /// create a `RunnableLinuxVm`.
@@ -142,8 +151,8 @@ pub fn generate_pci_root(
         // Only support one bus.
         device.assign_bus_dev(0, dev_idx as u8);
 
-        let irqfd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
-        let irq_resample_fd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
+        let irqfd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
+        let irq_resample_fd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_num = resources
             .allocate_irq()
             .ok_or(DeviceRegistrationError::AllocateIrq)? as u32;

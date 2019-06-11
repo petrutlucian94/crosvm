@@ -18,13 +18,14 @@ use std::io;
 //use std::fs::File;
 use std::mem::size_of;
 use std::os::raw::*;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
 
 use vm_memory::*;
 
 //use kvm_sys::*;
 
 use sys_util::{
-    pagesize, EventFd, Result,
+    pagesize, Result, EventFd
 };
 
 pub use crate::cap::*;
@@ -518,7 +519,7 @@ impl Vm {
         addr: IoeventAddress,
         datamatch: Datamatch,
     ) -> Result<()> {
-        self.ioeventfd(evt, addr, datamatch, false)
+        self.ioevent(evt, addr, datamatch, false)
     }
 
     /// Unregisters an event previously registered with `register_ioevent`.
@@ -531,10 +532,10 @@ impl Vm {
         addr: IoeventAddress,
         datamatch: Datamatch,
     ) -> Result<()> {
-        self.ioeventfd(evt, addr, datamatch, true)
+        self.ioevent(evt, addr, datamatch, true)
     }
 
-    fn ioeventfd(
+    fn ioevent(
         &self,
         evt: &EventFd,
         addr: IoeventAddress,
@@ -551,8 +552,9 @@ impl Vm {
         target_arch = "arm",
         target_arch = "aarch64"
     ))]
-    pub fn register_irqfd(&self, evt: &EventFd, gsi: u32) -> Result<()> {
-        panic!("Not Implemented")
+    pub fn register_irqfd(&self, evt: &mut InterruptEvent, gsi: u32) -> Result<()> {
+        evt.map(&self.partition, gsi);
+        Ok(())
     }
 
     /// Registers an event that will, when signalled, trigger the `gsi` irq, and `resample_evt` will
@@ -565,8 +567,8 @@ impl Vm {
     ))]
     pub fn register_irqfd_resample(
         &self,
-        evt: &EventFd,
-        resample_evt: &EventFd,
+        evt: &InterruptEvent,
+        resample_evt: &InterruptEvent,
         gsi: u32,
     ) -> Result<()> {
         panic!("Not Implemented")
@@ -583,8 +585,9 @@ impl Vm {
         target_arch = "arm",
         target_arch = "aarch64"
     ))]
-    pub fn unregister_irqfd(&self, evt: &EventFd, gsi: u32) -> Result<()> {
-        panic!("Not Implemented")
+    pub fn unregister_irqfd(&self, evt: &mut InterruptEvent, gsi: u32) -> Result<()> {
+        evt.unmap();
+        Ok(())
     }
 
     /// Sets the GSI routing table, replacing any table set with previous calls to
@@ -761,5 +764,115 @@ impl VcpuExtra for WhpVirtualProcessor {
     fn set_signal_mask(&self, _signals: &[c_int]) -> Result<()> {
         unimplemented!();
         Ok(())
+    }
+}
+
+/// This is meant to be an EventFd structure replacement, allowing us
+/// to emulate KVM APIs.
+/// WHP doesn't allow mapping event objects to IRQs, so instead we'll
+/// add a dedicated structure that contains a callback which will
+/// trigger an iterrupt when the "event" gets signaled.
+///
+/// For convenience, we'll wrap an EventFd so that this structure can also
+/// be used for resample events, triggered by us when receiving an level
+/// interrupt EOI.
+pub struct InterruptEvent {
+    partition: Option<Partition>,
+    irq: u32,
+    eventfd: EventFd
+}
+
+impl InterruptEvent {
+    /// Create a new InterruptEvent object.
+    pub fn new() -> Result<InterruptEvent> {
+        Ok(InterruptEvent{
+            partition: None,
+            irq: 0,
+            eventfd: EventFd::new()?
+        })
+    }
+
+    pub fn interrupt(&self) -> Result<()> {
+        let mut interrupt: WHV_INTERRUPT_CONTROL = Default::default();
+
+        interrupt.set_InterruptType(
+            WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed as UINT64);
+        interrupt.set_DestinationMode(
+            WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModePhysical as UINT64);
+        interrupt.set_TriggerMode(
+            WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge as UINT64);
+        interrupt.Destination = 0;
+        interrupt.Vector = self.irq;
+
+        match &self.partition {
+            Some(ref partition) => {
+                partition.request_interrupt(&mut interrupt).unwrap()
+            }
+            None => {}
+        }
+
+        Ok(())
+    }
+
+    pub fn map(&mut self, partition: &Partition, irq: u32) {
+        self.partition = Some(partition.clone());
+        self.irq = irq;
+    }
+
+    pub fn unmap(&mut self) {
+        self.partition = None;
+    }
+
+    /// Trigger an interrupt by signaling this event.
+    ///
+    /// "Resample" events will not be mapped. When signaled, we don't want to
+    /// send an inerrupt, we just want to let the VMM know that an EOI has been
+    /// received.
+    pub fn write(&self, v: u64) -> Result<()> {
+        self.interrupt()?;
+        self.eventfd.write(v)
+    }
+
+    /// Blocks until the the eventfd's count is non-zero, then
+    /// resets the count to zero.
+    pub fn read(&self) -> Result<u64> {
+        self.eventfd.read()
+    }
+
+    /// Clones this InterruptEvent object.
+    pub fn try_clone(&self) -> Result<InterruptEvent> {
+        let partition = match self.partition {
+            Some(ref partition) => Some(partition.clone()),
+            None => None
+        };
+
+        Ok(InterruptEvent {
+            eventfd: self.eventfd.try_clone()?,
+            partition: partition,
+            irq: self.irq
+        })
+    }
+}
+
+
+impl AsRawHandle for InterruptEvent {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.eventfd.as_raw_handle()
+    }
+}
+
+impl FromRawHandle for InterruptEvent {
+    unsafe fn from_raw_handle(fd: RawHandle) -> Self {
+        InterruptEvent {
+            eventfd: EventFd::from_raw_handle(fd),
+            partition: None,
+            irq: 0
+        }
+    }
+}
+
+impl IntoRawHandle for InterruptEvent {
+    fn into_raw_handle(self) -> RawHandle {
+        self.eventfd.into_raw_handle()
     }
 }

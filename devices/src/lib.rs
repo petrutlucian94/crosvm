@@ -6,6 +6,8 @@
 
 extern crate chrono;
 extern crate vm_memory;
+extern crate sys_util;
+extern crate whp;
 
 mod bus;
 mod cmos;
@@ -35,3 +37,9 @@ pub use self::pit::{Pit, PitError};
 pub use self::pl030::Pl030;
 pub use self::serial::Serial;
 pub use self::virtio::VirtioPciDevice;
+
+#[cfg(unix)]
+pub type InterruptEvent = sys_util::EventFd;
+
+#[cfg(windows)]
+pub use whp::{InterruptEvent};

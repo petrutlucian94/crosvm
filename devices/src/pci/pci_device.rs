@@ -9,11 +9,11 @@ use std::fmt::{self, Display};
 
 use whp::Datamatch;
 use resources::{Error as SystemAllocatorFaliure, SystemAllocator};
-use sys_util::EventFd;
+use sys_util::{EventFd};
 
 use crate::pci::pci_configuration::{self, PciConfiguration};
 use crate::pci::PciInterruptPin;
-use crate::BusDevice;
+use crate::{BusDevice, InterruptEvent};
 
 #[derive(Debug)]
 pub enum Error {
@@ -54,8 +54,8 @@ pub trait PciDevice: Send {
     /// When `irq_resample_evt` is signaled, the device should re-assert `irq_evt` if necessary.
     fn assign_irq(
         &mut self,
-        _irq_evt: EventFd,
-        _irq_resample_evt: EventFd,
+        _irq_evt: InterruptEvent,
+        _irq_resample_evt: InterruptEvent,
         _irq_num: u32,
         _irq_pin: PciInterruptPin,
     ) {
@@ -152,8 +152,8 @@ impl<T: PciDevice + ?Sized> PciDevice for Box<T> {
     }
     fn assign_irq(
         &mut self,
-        irq_evt: EventFd,
-        irq_resample_evt: EventFd,
+        irq_evt: InterruptEvent,
+        irq_resample_evt: InterruptEvent,
         irq_num: u32,
         irq_pin: PciInterruptPin,
     ) {

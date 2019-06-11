@@ -230,6 +230,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
     use sys_util::{EventFd, GuestMemoryMmap};
+    use crate::InterruptEvent;
 
     struct DummyDevice(u32);
     const QUEUE_SIZE: u16 = 256;
@@ -245,8 +246,8 @@ mod tests {
         fn activate(
             &mut self,
             _mem: GuestMemoryMmap,
-            _interrupt_evt: EventFd,
-            _interrupt_resample_evt: EventFd,
+            _interrupt_evt: InterruptEvent,
+            _interrupt_resample_evt: InterruptEvent,
             _status: Arc<AtomicUsize>,
             _queues: Vec<Queue>,
             _queue_evts: Vec<EventFd>,

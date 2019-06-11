@@ -546,8 +546,8 @@ impl X8664arch {
 
         let mut io_bus = devices::Bus::new();
 
-        let com_evt_1_3 = EventFd::new().map_err(Error::CreateEventFd)?;
-        let com_evt_2_4 = EventFd::new().map_err(Error::CreateEventFd)?;
+        let mut com_evt_1_3 = InterruptEvent::new().map_err(Error::CreateEventFd)?;
+        let mut com_evt_2_4 = InterruptEvent::new().map_err(Error::CreateEventFd)?;
         let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::CloneEventFd)?,
             Box::new(stdout()),
@@ -602,7 +602,7 @@ impl X8664arch {
 
         // TODO(lpetrut): figure out if we need/want to emulate PIC/PIT devices.
         if split_irqchip {
-            let pit_evt = EventFd::new().map_err(Error::CreateEventFd)?;
+            let mut pit_evt = InterruptEvent::new().map_err(Error::CreateEventFd)?;
             let pit = Arc::new(Mutex::new(
                 devices::Pit::new(
                     pit_evt.try_clone().map_err(Error::CloneEventFd)?,
@@ -612,7 +612,7 @@ impl X8664arch {
             ));
             // Reserve from 0x40 to 0x61 (the speaker).
             io_bus.insert(pit.clone(), 0x040, 0x22, false).unwrap();
-            vm.register_irqfd(&pit_evt, 0)
+            vm.register_irqfd(&mut pit_evt, 0)
                 .map_err(Error::RegisterIrqfd)?;
         } else {
             io_bus
@@ -636,9 +636,9 @@ impl X8664arch {
                 .unwrap();
         }
 
-        vm.register_irqfd(&com_evt_1_3, 4)
+        vm.register_irqfd(&mut com_evt_1_3, 4)
             .map_err(Error::RegisterIrqfd)?;
-        vm.register_irqfd(&com_evt_2_4, 3)
+        vm.register_irqfd(&mut com_evt_2_4, 3)
             .map_err(Error::RegisterIrqfd)?;
 
         Ok((io_bus, stdio_serial))

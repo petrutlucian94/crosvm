@@ -26,7 +26,7 @@ use sys_util::FakeTimerFd as TimerFd;
 #[cfg(not(test))]
 use sys_util::TimerFd;
 
-use crate::BusDevice;
+use crate::{BusDevice, InterruptEvent};
 
 // Bitmask for areas of standard (non-ReadBack) Control Word Format. Constant
 // names are kept the same as Intel PIT data sheet.
@@ -253,7 +253,7 @@ impl BusDevice for Pit {
 }
 
 impl Pit {
-    pub fn new(interrupt_evt: EventFd, clock: Arc<Mutex<Clock>>) -> PitResult<Pit> {
+    pub fn new(interrupt_evt: InterruptEvent, clock: Arc<Mutex<Clock>>) -> PitResult<Pit> {
         let mut counters = Vec::new();
         let mut interrupt = Some(interrupt_evt);
         for i in 0..NUM_OF_COUNTERS {
@@ -317,7 +317,7 @@ impl Pit {
 // implement one-shot and repeating timer alarms. An 8254 has three counters.
 struct PitCounter {
     // EventFd to write when asserting an interrupt.
-    interrupt_evt: Option<EventFd>,
+    interrupt_evt: Option<InterruptEvent>,
     // Stores the value with which the counter was initialized. Counters are 16-
     // bit values with an effective range of 1-65536 (65536 represented by 0).
     reload_value: u16,
@@ -381,7 +381,7 @@ fn adjust_count(count: u32) -> u32 {
 impl PitCounter {
     fn new(
         counter_id: usize,
-        interrupt_evt: Option<EventFd>,
+        interrupt_evt: Option<InterruptEvent>,
         clock: Arc<Mutex<Clock>>,
     ) -> PitResult<PitCounter> {
         #[cfg(not(test))]
@@ -762,7 +762,7 @@ mod tests {
     use super::*;
     struct TestData {
         pit: Pit,
-        irqfd: EventFd,
+        irqfd: InterruptEvent,
         clock: Arc<Mutex<Clock>>,
     }
 
@@ -824,7 +824,7 @@ mod tests {
     }
 
     fn set_up() -> TestData {
-        let irqfd = EventFd::new().unwrap();
+        let irqfd = InterruptEvent::new().unwrap();
         let clock = Arc::new(Mutex::new(Clock::new()));
         TestData {
             pit: Pit::new(irqfd.try_clone().unwrap(), clock.clone()).unwrap(),

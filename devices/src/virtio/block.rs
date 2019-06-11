@@ -26,6 +26,7 @@ use sys_util::{
 
 use vm_memory::endian::{Le16, Le32, Le64};
 
+use crate::{InterruptEvent};
 use super::{
     DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_CONFIG_CHANGED,
     INTERRUPT_STATUS_USED_RING, TYPE_BLOCK, VIRTIO_F_VERSION_1,
@@ -590,8 +591,8 @@ struct Worker<T: DiskFile> {
     disk_size: Arc<Mutex<u64>>,
     read_only: bool,
     interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
-    interrupt_resample_evt: EventFd,
+    interrupt_evt: InterruptEvent,
+    interrupt_resample_evt: InterruptEvent,
 }
 
 impl<T: DiskFile> Worker<T> {
@@ -806,8 +807,8 @@ impl<T: 'static + DiskFile + Send> VirtioDevice for Block<T> {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt_evt: EventFd,
-        interrupt_resample_evt: EventFd,
+        interrupt_evt: InterruptEvent,
+        interrupt_resample_evt: InterruptEvent,
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,

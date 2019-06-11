@@ -11,6 +11,7 @@ use sys_util::{EventFd};
 
 use super::*;
 use crate::pci::{PciBarConfiguration, PciCapability};
+use crate::InterruptEvent;
 
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
@@ -60,8 +61,8 @@ pub trait VirtioDevice: Send {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt_evt: EventFd,
-        interrupt_resample_evt: EventFd,
+        interrupt_evt: InterruptEvent,
+        interrupt_resample_evt: InterruptEvent,
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
         queue_evts: Vec<EventFd>,
