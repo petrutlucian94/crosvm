@@ -54,7 +54,7 @@ impl PciRoot {
                     PciClassCode::BridgeDevice,
                     &PciBridgeSubclass::HostBridge,
                     None,
-                    PciHeaderType::Bridge,
+                    PciHeaderType::Device,
                     0,
                     0,
                 ),
