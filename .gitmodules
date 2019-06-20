@@ -4,7 +4,7 @@
 	branch = master
 [submodule "libwhp"]
 	path = libwhp
-	url = https://github.com/jennymankin/libwhp.git
+	url = https://github.com/petrutlucian94/libwhp.git
 [submodule "vmm-vcpu"]
 	path = vmm-vcpu
 	url = https://github.com/jennymankin/vmm-vcpu.git
