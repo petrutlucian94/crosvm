@@ -226,90 +226,79 @@ fn run_vcpu (
     mmio_bus: devices::Bus,
     exit_evt: EventFd,
     run_mode_arc: Arc<VcpuRunMode>,
-) -> Result<()> {
-//) -> Result<JoinHandle<()>> {
-    //
-    // TODO: We need to resolve/replace the underlying raw pointers in/
-    // VirtualProcessor and WhpVirtualProcessor to something with a Send trait.
-    // For now just make single-threaded.
-    //
-    /*
+) -> Result<JoinHandle<()>> {
+
     thread::Builder::new()
         .name(format!("crosvm_vcpu{}", cpu_id))
         .spawn(move || {
             start_barrier.wait();
 
             'vcpu_loop: loop {
-    */
-    loop {
-        match vcpu.run() {
-            Ok(run) => match run {
-                // These first 5 are VMM exits that we share with KVM
+                match vcpu.run() {
+                    Ok(run) => match run {
+                        // These first 5 are VMM exits that we share with KVM
 
-                // The rust-vmm kvm-ioctls crate defines IO and MMIO VcpuExit
-                // values the same way the Vcpu crate does. Because we can
-                // assume that crosvm will eventually move to the kvm-ioctls
-                // way (as Firecracker already has), we'll use that format
-                // here in the run function, not the way that it was previously
-                // done in crosvm. (The difference, incidentally, is basically
-                // just where the processing of the data array is done. In this
-                // case, it's done in the run() function itself, whereas original
-                // crosvm code does it in a combination of here and in the
-                // set_data function of Vcpu.)
-                VcpuExit::IoIn(addr, data) => {
-                    io_bus.read(addr as u64, data);
-                }
-                VcpuExit::IoOut(addr, data) => {
-                    io_bus.write(addr as u64, data);
-                }
-                VcpuExit::MmioRead(addr, data) => {
-                    mmio_bus.read(addr, data);
-                }
-                VcpuExit::MmioWrite(addr, data) => {
-                    mmio_bus.write(addr, data);
-                }
-                VcpuExit::Hlt => break,
+                        // The rust-vmm kvm-ioctls crate defines IO and MMIO VcpuExit
+                        // values the same way the Vcpu crate does. Because we can
+                        // assume that crosvm will eventually move to the kvm-ioctls
+                        // way (as Firecracker already has), we'll use that format
+                        // here in the run function, not the way that it was previously
+                        // done in crosvm. (The difference, incidentally, is basically
+                        // just where the processing of the data array is done. In this
+                        // case, it's done in the run() function itself, whereas original
+                        // crosvm code does it in a combination of here and in the
+                        // set_data function of Vcpu.)
+                        VcpuExit::IoIn(addr, data) => {
+                            io_bus.read(addr as u64, data);
+                        }
+                        VcpuExit::IoOut(addr, data) => {
+                            io_bus.write(addr as u64, data);
+                        }
+                        VcpuExit::MmioRead(addr, data) => {
+                            mmio_bus.read(addr, data);
+                        }
+                        VcpuExit::MmioWrite(addr, data) => {
+                            mmio_bus.write(addr, data);
+                        }
+                        VcpuExit::Hlt => break,
 
-                // These next ones are WHP-specific
-                VcpuExit::MsrAccess => {
-                    // No real analogous reason to use MsrAccess
-                }
-                VcpuExit::CpuId => {
-                    // KVM handles cpuid instructions by setting the default
-                    // values that should be returned as results for each
-                    // feature/leaf on a per-vcpu level, so there is no VcpuExit
-                    // for CPUID instructions.
-                    // WHP provides two mechanisms for handling cpuid instructions:
-                    // setting default results on a partition (VM) level,
-                    // and manually handling them as they arise via handling on
-                    // a CPUID VcpuExit.
+                        // These next ones are WHP-specific
+                        VcpuExit::MsrAccess => {
+                            // No real analogous reason to use MsrAccess
+                        }
+                        VcpuExit::CpuId => {
+                            // KVM handles cpuid instructions by setting the default
+                            // values that should be returned as results for each
+                            // feature/leaf on a per-vcpu level, so there is no VcpuExit
+                            // for CPUID instructions.
+                            // WHP provides two mechanisms for handling cpuid instructions:
+                            // setting default results on a partition (VM) level,
+                            // and manually handling them as they arise via handling on
+                            // a CPUID VcpuExit.
 
-                    // The likely best mechanism for handling
-                    // CPUIDs would be to set the defaults at the partition
-                    // level, and then have a function here (or perhaps even in
-                    // whp_vcpu::run()) that passes through those default
-                    // values
-                    handle_cpuid_exit(&vcpu);
+                            // The likely best mechanism for handling
+                            // CPUIDs would be to set the defaults at the partition
+                            // level, and then have a function here (or perhaps even in
+                            // whp_vcpu::run()) that passes through those default
+                            // values
+                            handle_cpuid_exit(&vcpu);
+                        }
+                        VcpuExit::Exception => {
+                            let exit_context = unsafe { *vcpu.get_run_context() };
+                            println!("Exit Reason: {:?}", exit_context.ExitReason);
+                            println!("Exception. Breaking");
+                            break;
+                        }
+                        r => warn!("unexpected vcpu exit: {:?}", r),
+                    },
+                    Err(e) => error!("vcpu hit unknown error: {}", e),
                 }
-                VcpuExit::Exception => {
-                    let exit_context = unsafe { *vcpu.get_run_context() };
-                    println!("Exit Reason: {:?}", exit_context.ExitReason);
-                    println!("Exception. Breaking");
-                    break;
-                }
-                r => warn!("unexpected vcpu exit: {:?}", r),
-            },
-            Err(e) => error!("vcpu hit unknown error: {}", e),
-        }
-    }
-    Ok(())
-            /*
+            }
             exit_evt
                 .write(1)
                 .expect("failed to signal vcpu exit eventfd");
         })
         .map_err(Error::SpawnVcpu)
-        */
 }
 
 fn handle_cpuid_exit(vcpu: &WhpVirtualProcessor) {
