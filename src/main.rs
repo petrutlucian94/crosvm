@@ -16,7 +16,7 @@ use std::path::{PathBuf};
 use std::string::String;
 
 use qcow::QcowFile;
-use sys_util::{error, info};
+use sys_util::{error, info, syslog};
 
 use crate::argument::{print_help, set_arguments, Argument};
 
@@ -415,6 +415,11 @@ fn print_usage() {
 }
 
 fn crosvm_main() -> std::result::Result<(), ()> {
+    if let Err(e) = syslog::init() {
+        println!("failed to initialize syslog: {}", e);
+        return Err(());
+    }
+
     // panic_hook::set_panic_hook();
 
     let mut args = std::env::args();
