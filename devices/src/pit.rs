@@ -27,6 +27,7 @@ use sys_util::FakeTimerFd as TimerFd;
 use sys_util::TimerFd;
 
 use crate::{BusDevice, InterruptEvent};
+use sys_util::syslog;
 
 // Bitmask for areas of standard (non-ReadBack) Control Word Format. Constant
 // names are kept the same as Intel PIT data sheet.
@@ -217,13 +218,24 @@ impl BusDevice for Pit {
             warn!("Bad write size for Pit: {}", data.len());
             return;
         }
-        match PortIOSpace::n(offset as i64) {
-            Some(PortIOSpace::PortCounter0Data) => self.counters[0].lock().write_counter(data[0]),
-            Some(PortIOSpace::PortCounter1Data) => self.counters[1].lock().write_counter(data[0]),
-            Some(PortIOSpace::PortCounter2Data) => self.counters[2].lock().write_counter(data[0]),
-            Some(PortIOSpace::PortCommand) => self.command_write(data[0]),
-            Some(PortIOSpace::PortSpeaker) => self.counters[2].lock().write_speaker(data[0]),
-            None => warn!("PIT: bad write to offset {}", offset),
+        let port = offset + PortIOSpace::PortCounter0Data as u64;
+        match PortIOSpace::n(port as i64) {
+            Some(PortIOSpace::PortCounter0Data) => {
+                self.counters[0].lock().write_counter(data[0])
+            },
+            Some(PortIOSpace::PortCounter1Data) => {
+                self.counters[1].lock().write_counter(data[0])
+            },
+            Some(PortIOSpace::PortCounter2Data) => {
+                self.counters[2].lock().write_counter(data[0])
+            },
+            Some(PortIOSpace::PortCommand) => {
+                self.command_write(data[0])
+            },
+            Some(PortIOSpace::PortSpeaker) => {
+                self.counters[2].lock().write_speaker(data[0])
+            },
+            None => warn!("PIT: bad write to offset {}", port),
         }
     }
 
@@ -232,7 +244,8 @@ impl BusDevice for Pit {
             warn!("Bad read size for Pit: {}", data.len());
             return;
         }
-        data[0] = match PortIOSpace::n(offset as i64) {
+        let port = offset + PortIOSpace::PortCounter0Data as u64;
+        data[0] = match PortIOSpace::n(port as i64) {
             Some(PortIOSpace::PortCounter0Data) => self.counters[0].lock().read_counter(),
             Some(PortIOSpace::PortCounter1Data) => self.counters[1].lock().read_counter(),
             Some(PortIOSpace::PortCounter2Data) => self.counters[2].lock().read_counter(),
@@ -245,7 +258,7 @@ impl BusDevice for Pit {
             }
             Some(PortIOSpace::PortSpeaker) => self.counters[2].lock().read_speaker(),
             None => {
-                warn!("PIT: bad read from offset {}", offset);
+                warn!("PIT: bad read from offset {}", port);
                 return;
             }
         };

@@ -311,8 +311,8 @@ impl arch::LinuxArch for X8664arch {
         let whp = WhpManager::new().map_err(Error::CreateKvm)?;
         let mut vm = Self::create_vm(&whp, vcpu_count as usize,
                                      split_irqchip, mem.clone())?;
-
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+
         for cpu_id in 0..vcpu_count {
             let vcpu = WhpVirtualProcessor::new(cpu_id, &whp, &vm).map_err(Error::CreateVcpu)?;
             Self::configure_vcpu(
@@ -600,25 +600,20 @@ impl X8664arch {
             )
             .unwrap();
 
-        // TODO(lpetrut): figure out if we need/want to emulate PIC/PIT devices.
-        if split_irqchip {
-            let mut pit_evt = InterruptEvent::new().map_err(Error::CreateEventFd)?;
-            let pit = Arc::new(Mutex::new(
-                devices::Pit::new(
-                    pit_evt.try_clone().map_err(Error::CloneEventFd)?,
-                    Arc::new(Mutex::new(Clock::new())),
-                )
-                .map_err(Error::CreatePitDevice)?,
-            ));
-            // Reserve from 0x40 to 0x61 (the speaker).
-            io_bus.insert(pit.clone(), 0x040, 0x22, false).unwrap();
-            vm.register_irqfd(&mut pit_evt, 0)
-                .map_err(Error::RegisterIrqfd)?;
-        } else {
-            io_bus
-                .insert(nul_device.clone(), 0x040, 0x8, false)
-                .unwrap(); // ignore pit
-        }
+        // TODO(lpetrut): find out if WHP can emulate a timer for us.
+        let mut pit_evt = InterruptEvent::new().map_err(Error::CreateEventFd)?;
+        vm.register_irqfd(&mut pit_evt, 0)
+            .map_err(Error::RegisterIrqfd)?;
+        let pit = Arc::new(Mutex::new(
+            devices::Pit::new(
+                pit_evt.try_clone().map_err(Error::CloneEventFd)?,
+                Arc::new(Mutex::new(Clock::new())),
+            )
+            .map_err(Error::CreatePitDevice)?,
+        ));
+        // We won't use the speaker port here, avoiding an overlap
+        // with i8042.
+        io_bus.insert(pit.clone(), 0x040, 0x8, false).unwrap();
 
         io_bus
             .insert(nul_device.clone(), 0x0ed, 0x1, false)

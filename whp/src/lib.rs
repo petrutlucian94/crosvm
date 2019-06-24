@@ -25,7 +25,7 @@ use vm_memory::*;
 //use kvm_sys::*;
 
 use sys_util::{
-    pagesize, Result, EventFd
+    pagesize, Result, EventFd, warn, info
 };
 
 pub use crate::cap::*;
@@ -269,6 +269,7 @@ impl Vm {
 
         Vm::set_vcpu_count(&mut partition, vcpu_count);
         if enable_apic {
+            info!("Enabling WHP apic");
             Vm::enable_apic(&mut partition);
         }
 
@@ -314,8 +315,8 @@ impl Vm {
         guest_mem.with_regions_mut::<_, ()>(|_index, region| {
             // MemoryRegionRef implements the libwhp::Memory trait
             let region_ref = MemoryRegionRef::new(region);
-            println!("Mapping {:?} @ {:#x} [{:#x}]",
-                     region_ref.as_ptr(), region.start_addr().0, region.len());
+            info!("Mapping {:?} @ {:#x} [{:#x}]",
+                  region_ref.as_ptr(), region.start_addr().0, region.len());
 
             // Map the memory to the guest
             let mapping = partition
@@ -802,13 +803,18 @@ impl InterruptEvent {
         interrupt.set_TriggerMode(
             WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge as UINT64);
         interrupt.Destination = 0;
-        interrupt.Vector = self.irq;
+
+        // Vectors 0x30-0x3f are used for ISA interrupts.
+        // TODO(lpetrut): Are we doing the right thing here?
+        interrupt.Vector = self.irq + 0x30;
 
         match &self.partition {
             Some(ref partition) => {
                 partition.request_interrupt(&mut interrupt).unwrap()
             }
-            None => {}
+            None => {
+                warn!("InterruptEvent: no mapping found");
+            }
         }
 
         Ok(())
