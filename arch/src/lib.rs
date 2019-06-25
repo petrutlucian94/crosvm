@@ -151,7 +151,7 @@ pub fn generate_pci_root(
         // Only support one bus.
         device.assign_bus_dev(0, dev_idx as u8);
 
-        let irqfd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
+        let mut irqfd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_resample_fd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_num = resources
             .allocate_irq()
@@ -163,7 +163,7 @@ pub fn generate_pci_root(
             3 => PciInterruptPin::IntD,
             _ => panic!(""), // Obviously not possible, but the compiler is not smart enough.
         };
-        vm.register_irqfd_resample(&irqfd, &irq_resample_fd, irq_num)
+        vm.register_irqfd_resample(&mut irqfd, &irq_resample_fd, irq_num)
             .map_err(DeviceRegistrationError::RegisterIrqfd)?;
         device.assign_irq(irqfd, irq_resample_fd, irq_num, pci_irq_pin);
         pci_irqs.push((dev_idx as u32, pci_irq_pin));

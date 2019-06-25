@@ -568,7 +568,7 @@ impl Vm {
     ))]
     pub fn register_irqfd_resample(
         &self,
-        evt: &InterruptEvent,
+        evt: &mut InterruptEvent,
         resample_evt: &InterruptEvent,
         gsi: u32,
     ) -> Result<()> {
