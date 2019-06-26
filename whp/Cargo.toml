@@ -10,6 +10,7 @@ libwhp = { path = "../libwhp" }
 vmm-vcpu = { path = "../vmm-vcpu" }
 sys_util = { path = "../sys_util" }
 libc = "*"
+byteorder = "*"
 
 kvm-bindings = "0.1"
 

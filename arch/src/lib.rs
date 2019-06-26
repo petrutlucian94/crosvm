@@ -137,11 +137,15 @@ impl Display for DeviceRegistrationError {
 }
 
 /// Creates a root PCI device for use by this Vm.
+// TODO(lpetrut): We shouldn't require WhpVirtualProcessor.
+// In order to be able to share those crates with rust-vmm,
+// we should use vmm-vcpu traits.
 pub fn generate_pci_root(
     devices: Vec<(Box<dyn PciDevice>)>,
     mmio_bus: &mut Bus,
     resources: &mut SystemAllocator,
     vm: &mut Vm,
+    vcpus: &mut [WhpVirtualProcessor]
 ) -> Result<(PciRoot, Vec<(u32, PciInterruptPin)>), DeviceRegistrationError>
 {
     let mut root = PciRoot::new();
@@ -162,7 +166,9 @@ pub fn generate_pci_root(
             3 => PciInterruptPin::IntD,
             _ => panic!(""), // Obviously not possible, but the compiler is not smart enough.
         };
-        vm.register_irqfd_resample(&mut irqfd, &irq_resample_fd, irq_num)
+        vm.register_irqfd_resample(
+            &mut irqfd, &irq_resample_fd, irq_num,
+            vcpus)
             .map_err(DeviceRegistrationError::RegisterIrqfd)?;
         device.assign_irq(irqfd, irq_resample_fd, irq_num, pci_irq_pin);
         pci_irqs.push((dev_idx as u32, pci_irq_pin));
@@ -178,7 +184,7 @@ pub fn generate_pci_root(
             .map_err(DeviceRegistrationError::RegisterDeviceCapabilities)?;
         for (event, addr, datamatch) in device.ioeventfds() {
             let io_addr = IoeventAddress::Mmio(addr);
-            vm.register_ioevent(&event, io_addr, datamatch)
+            vm.register_ioevent(&event, io_addr, datamatch, vcpus)
                 .map_err(DeviceRegistrationError::RegisterIoevent)?;
         }
 

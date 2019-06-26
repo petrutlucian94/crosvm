@@ -13,9 +13,13 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::cell::RefCell;
-pub use crate::vcpu_structs::*;
+
+pub use crate::common::*;
+use crate::whp_structs::*;
+pub use crate::interrupt_event::InterruptEvent;
 
 use libwhp::instruction_emulator::*;
 pub use libwhp::*;
@@ -25,6 +29,7 @@ use libwhp::instruction_emulator::{Emulator, EmulatorCallbacks};
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit, Result as VcpuResult};
 use vmm_vcpu::x86_64::{FpuState, MsrEntries, SpecialRegisters, StandardRegisters,
                        LapicState, CpuId};
+use sys_util::{EventFd, Result as WinResult};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -78,6 +83,10 @@ impl WhpContext {
 pub struct WhpVirtualProcessor {
     emulator: Emulator<WhpContext>,
     whp_context: RefCell<WhpContext>,
+    resample_events: BTreeMap<u32, InterruptEvent>,
+    pio_events: BTreeMap<u64, (EventFd, Datamatch)>,
+    mmio_events: BTreeMap<u64, (EventFd, Datamatch)>
+
 }
 
 impl WhpVirtualProcessor {
@@ -89,7 +98,10 @@ impl WhpVirtualProcessor {
                 last_exit_context: Default::default(),
                 io_access_data: Default::default(),
                 mmio_access_data: Default::default(),
-            })
+            }),
+            resample_events: BTreeMap::new(),
+            pio_events: BTreeMap::new(),
+            mmio_events: BTreeMap::new(),
         });
     }
 
@@ -103,7 +115,10 @@ impl WhpVirtualProcessor {
                 last_exit_context: Default::default(),
                 io_access_data: Default::default(),
                 mmio_access_data: Default::default(),
-            })
+            }),
+            resample_events: BTreeMap::new(),
+            pio_events: BTreeMap::new(),
+            mmio_events: BTreeMap::new(),
         });
     }
 
@@ -212,6 +227,71 @@ impl WhpVirtualProcessor {
         reg_values[0].DeliverabilityNotifications = notifications;
         reg_names[0] = WHV_REGISTER_NAME::WHvX64RegisterDeliverabilityNotifications;
         self.whp_context.borrow().vp.set_registers(&reg_names, &reg_values).unwrap();
+    }
+
+    pub fn register_irqfd_resample(
+        &mut self,
+        evt: &mut InterruptEvent,
+        resample_evt: &InterruptEvent,
+        gsi: u32,
+    ) -> WinResult<()> {
+        self.resample_events.insert(
+            gsi, resample_evt.try_clone()?);
+        Ok(())
+    }
+
+    pub fn unregister_irqfd_resample(
+        &mut self,
+        gsi: u32,
+    ) -> WinResult<()> {
+        self.resample_events.remove(&gsi);
+        Ok(())
+    }
+
+    /// Registers an event to be signaled when the guest writes to
+    /// the specified port IO or MMIO address. By using Datamatch,
+    /// the written data can be checked.
+    ///
+    /// Note that for now, we're keeping a single Datamatch object
+    /// per address.
+    pub fn register_ioevent(
+        &mut self,
+        evt: &EventFd,
+        addr: IoeventAddress,
+        datamatch: Datamatch,
+    ) -> WinResult<()> {
+        match addr {
+            IoeventAddress::Pio(pio_addr) => {
+                let existing = self.pio_events.insert(
+                    pio_addr, (evt.try_clone().unwrap(), datamatch));
+            }
+            IoeventAddress::Mmio(mmio_addr) => {
+                let existing = self.mmio_events.insert(
+                    mmio_addr, (evt.try_clone().unwrap(), datamatch));
+            }
+        }
+        Ok(())
+    }
+
+    /// Unregisters an event previously registered with `register_ioevent`.
+    ///
+    /// The `evt`, `addr`, and `datamatch` set must be the same as the ones passed into
+    /// `register_ioevent`.
+    pub fn unregister_ioevent(
+        &mut self,
+        evt: &EventFd,
+        addr: IoeventAddress,
+        datamatch: Datamatch,
+    ) -> WinResult<()> {
+        match addr {
+            IoeventAddress::Pio(pio_addr) => {
+                self.pio_events.remove(&pio_addr);
+            }
+            IoeventAddress::Mmio(mmio_addr) => {
+                self.mmio_events.remove(&mmio_addr);
+            }
+        }
+        Ok(())
     }
 
 }
@@ -596,7 +676,7 @@ impl Vcpu for WhpVirtualProcessor {
                 WHV_RUN_VP_EXIT_REASON::WHvRunVpExitReasonX64IoPortAccess {
         }
 
-        let exit_reason = 
+        let exit_reason =
             match whp_context.last_exit_context.ExitReason {
                 WHV_RUN_VP_EXIT_REASON::WHvRunVpExitReasonNone => VcpuExit::Unknown,
                 WHV_RUN_VP_EXIT_REASON::WHvRunVpExitReasonMemoryAccess => {
@@ -606,18 +686,22 @@ impl Vcpu for WhpVirtualProcessor {
                     let mmio_data_ptr = whp_context.mmio_access_data.mmio_data.as_mut_ptr();
                     let size = whp_context.mmio_access_data.mmio_data_len;
                     let mut mmio_data: &mut [u8];
+                    let mmio_addr = whp_context.mmio_access_data.gpa;
 
                     unsafe {
                         mmio_data = std::slice::from_raw_parts_mut( mmio_data_ptr, size);
                     }
 
                     if whp_context.mmio_access_data.is_write == 0 {
-                        return Ok(VcpuExit::MmioRead(
-                            whp_context.mmio_access_data.gpa,
-                            mmio_data,
-                        ));
+                        return Ok(VcpuExit::MmioRead(mmio_addr, mmio_data));
                     }
                     else {
+                        if let Some((evt, datamatch)) = self.mmio_events.get(&mmio_addr) {
+                            if datamatch.matches(mmio_data) {
+                                evt.write(1);
+                                return self.run();
+                            }
+                        }
                         return Ok(VcpuExit::MmioWrite(
                             whp_context.mmio_access_data.gpa,
                             mmio_data,
@@ -629,6 +713,7 @@ impl Vcpu for WhpVirtualProcessor {
                     self.handle_io_port_exit(&mut whp_context).unwrap();
                     let io_data_ptr = whp_context.io_access_data.io_data.as_mut_ptr();
 
+                    let port = whp_context.io_access_data.port;
                     let size = whp_context.io_access_data.io_data_len;
 
                     let mut io_data: &mut [u8];
@@ -638,12 +723,15 @@ impl Vcpu for WhpVirtualProcessor {
                     }
 
                     if whp_context.io_access_data.is_write == 0 {
-                        return Ok(VcpuExit::IoIn(
-                            whp_context.io_access_data.port,
-                            io_data,
-                        ));
+                        return Ok(VcpuExit::IoIn(port, io_data));
                     }
                     else {
+                        if let Some((evt, datamatch)) = self.pio_events.get(&(port as u64)) {
+                            if datamatch.matches(io_data) {
+                                evt.write(1);
+                                return self.run();
+                            }
+                        }
                         return Ok(VcpuExit::IoOut(
                             whp_context.io_access_data.port,
                             io_data,
@@ -666,7 +754,23 @@ impl Vcpu for WhpVirtualProcessor {
                     VcpuExit::Hlt
                 }
                 WHV_RUN_VP_EXIT_REASON::WHvRunVpExitReasonX64ApicEoi => {
-                    VcpuExit::IoapicEoi
+                    let eoi_ctxt = unsafe {
+                        whp_context.last_exit_context.anon_union.ApicEoi
+                    };
+
+                    // NOTE(lpetrut): one of the main purposes of resample events
+                    // is to avoid generating Eoi exits. We'll still get an exit
+                    // but we're not going to propagate it, emulating KVM's
+                    // API.
+                    match self.resample_events.get(&eoi_ctxt.InterruptVector) {
+                        Some(evt) => {
+                            unsafe {
+                                evt.write(1);
+                            }
+                            self.run()?
+                        },
+                        None => VcpuExit::IoapicEoi
+                    }
                 }
                 WHV_RUN_VP_EXIT_REASON::WHvRunVpExitReasonX64MsrAccess => {
                     VcpuExit::MsrAccess

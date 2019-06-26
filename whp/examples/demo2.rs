@@ -32,7 +32,6 @@ use libwhp::memory::*;
 use libwhp::*;
 
 use whp::vcpu::*;
-use whp::vcpu_structs::*;
 
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit};
 use vmm_vcpu::x86_64::{

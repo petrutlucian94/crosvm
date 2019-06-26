@@ -13,7 +13,8 @@ extern crate vm_memory;
 mod cap;
 mod interrupt_event;
 pub mod vcpu;
-pub mod vcpu_structs;
+mod whp_structs;
+pub mod common;
 
 use std::cmp::{Ordering};
 use std::io;
@@ -34,6 +35,7 @@ pub use crate::cap::*;
 pub use crate::interrupt_event::InterruptEvent;
 pub use crate::vcpu::WhpVirtualProcessor;
 use crate::vcpu::*;
+pub use crate::common::*;
 
 use libwhp::memory::*;
 use libwhp::{Partition, GPARangeMapping};
@@ -58,7 +60,6 @@ use kvm_bindings::{
     kvm_enable_cap as EnableCap,
     kvm_msi as Msi,
     };
-
 
 // Returns a `Vec<T>` with a size in ytes at least as large as `size_in_bytes`.
 fn vec_with_size_in_bytes<T: Default>(size_in_bytes: usize) -> Vec<T> {
@@ -168,40 +169,6 @@ impl WhpManager {
 //         self.kvm.as_raw_fd()
 //     }
 // }
-
-/// An address either in programmable I/O space or in memory mapped I/O space.
-#[derive(Copy, Clone, Debug)]
-pub enum IoeventAddress {
-    Pio(u64),
-    Mmio(u64),
-}
-
-/// Used in `Vm::register_ioevent` to indicate a size and optionally value to match.
-pub enum Datamatch {
-    AnyLength,
-    U8(Option<u8>),
-    U16(Option<u16>),
-    U32(Option<u32>),
-    U64(Option<u64>),
-}
-
-/// A source of IRQs in an `IrqRoute`.
-pub enum IrqSource {
-    Irqchip { chip: u32, pin: u32 },
-    Msi { address: u64, data: u32 },
-}
-
-/// A single route for an IRQ.
-pub struct IrqRoute {
-    pub gsi: u32,
-    pub source: IrqSource,
-}
-
-/// Interrupt controller IDs
-pub enum PicId {
-    Primary = 0,
-    Secondary = 1,
-}
 
 /// Number of pins on the IOAPIC.
 pub const NUM_IOAPIC_PINS: usize = 24;
@@ -522,8 +489,12 @@ impl Vm {
         evt: &EventFd,
         addr: IoeventAddress,
         datamatch: Datamatch,
+        vcpus: &mut [WhpVirtualProcessor],
     ) -> Result<()> {
-        self.ioevent(evt, addr, datamatch, false)
+        for vcpu in vcpus {
+            vcpu.register_ioevent(evt, addr, datamatch)?;
+        }
+        Ok(())
     }
 
     /// Unregisters an event previously registered with `register_ioevent`.
@@ -535,18 +506,12 @@ impl Vm {
         evt: &EventFd,
         addr: IoeventAddress,
         datamatch: Datamatch,
+        vcpus: &mut [WhpVirtualProcessor],
     ) -> Result<()> {
-        self.ioevent(evt, addr, datamatch, true)
-    }
-
-    fn ioevent(
-        &self,
-        evt: &EventFd,
-        addr: IoeventAddress,
-        datamatch: Datamatch,
-        deassign: bool,
-    ) -> Result<()> {
-        panic!("Not Implemented")
+        for vcpu in vcpus {
+            vcpu.unregister_ioevent(evt, addr, datamatch)?;
+        }
+        Ok(())
     }
 
     /// Registers an event that will, when signalled, trigger the `gsi` irq.
@@ -574,8 +539,13 @@ impl Vm {
         evt: &mut InterruptEvent,
         resample_evt: &InterruptEvent,
         gsi: u32,
+        vcpus: &mut [WhpVirtualProcessor],
     ) -> Result<()> {
-        panic!("Not Implemented")
+        // We're emulating this KVM feature at the whp vcpu level.
+        for vcpu in vcpus {
+            vcpu.register_irqfd_resample(evt, resample_evt, gsi)?;
+        }
+        Ok(())
     }
 
     /// Unregisters an event that was previously registered with
@@ -589,8 +559,16 @@ impl Vm {
         target_arch = "arm",
         target_arch = "aarch64"
     ))]
-    pub fn unregister_irqfd(&self, evt: &mut InterruptEvent, gsi: u32) -> Result<()> {
+    pub fn unregister_irqfd(
+        &self,
+        evt: &mut InterruptEvent,
+        gsi: u32,
+        vcpus: &mut [WhpVirtualProcessor],
+    ) -> Result<()> {
         evt.unmap();
+        for vcpu in vcpus {
+            vcpu.unregister_irqfd_resample(gsi)?;
+        }
         Ok(())
     }
 
