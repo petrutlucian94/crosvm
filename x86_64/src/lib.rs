@@ -70,8 +70,6 @@ use devices::{PciConfigIo, PciDevice, PciInterruptPin};
 #[cfg(windows)]
 use whp::*;
 #[cfg(windows)]
-use libwhp::whp_vcpu::WhpVirtualProcessor;
-#[cfg(windows)]
 use libwhp::VirtualProcessor;
 
 use remain::sorted;

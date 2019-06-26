@@ -19,8 +19,7 @@ use devices::{
     Bus, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
     Serial,
 };
-use whp::{IoeventAddress, WhpManager, Vm};
-use libwhp::whp_vcpu::WhpVirtualProcessor;
+use whp::{IoeventAddress, WhpManager, WhpVirtualProcessor, Vm};
 use resources::SystemAllocator;
 use sync::Mutex;
 use sys_util::{EventFd};

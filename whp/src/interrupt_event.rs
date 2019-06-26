@@ -1,9 +1,9 @@
 use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
 
-use libwhp::whp_vcpu::*;
 use libwhp::Partition;
-use libwhp::whp_vcpu::WhpVirtualProcessor;
 use libwhp::instruction_emulator::*;
+
+use crate::vcpu::*;
 
 use sys_util::{Result, EventFd, warn, info};
 

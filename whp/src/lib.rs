@@ -12,6 +12,8 @@ extern crate vm_memory;
 
 mod cap;
 mod interrupt_event;
+pub mod vcpu;
+pub mod vcpu_structs;
 
 use std::cmp::{Ordering};
 use std::io;
@@ -30,11 +32,11 @@ use sys_util::{
 
 pub use crate::cap::*;
 pub use crate::interrupt_event::InterruptEvent;
+pub use crate::vcpu::WhpVirtualProcessor;
+use crate::vcpu::*;
 
-use libwhp::whp_vcpu::*;
 use libwhp::memory::*;
 use libwhp::{Partition, GPARangeMapping};
-use libwhp::whp_vcpu::WhpVirtualProcessor;
 use libwhp::instruction_emulator::*;
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit, Result as VcpuResult};
 use vmm_vcpu::x86_64::{FpuState, MsrEntries, SpecialRegisters, StandardRegisters,

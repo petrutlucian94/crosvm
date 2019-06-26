@@ -29,7 +29,6 @@ use vmm_vcpu::x86_64::{StandardRegisters};
 
 #[cfg(windows)]
 use whp::*;
-use libwhp::whp_vcpu::WhpVirtualProcessor;
 use crate::{Config, DiskOption};
 
 use arch::{self, LinuxArch, RunnableLinuxVm, VirtioDeviceStub, VmComponents};
