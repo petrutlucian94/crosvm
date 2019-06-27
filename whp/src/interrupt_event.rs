@@ -52,7 +52,7 @@ impl InterruptEvent {
                 partition.request_interrupt(&mut interrupt).unwrap()
             }
             None => {
-                warn!("InterruptEvent: no mapping found");
+                warn!("InterruptEvent: no mapping found. Ignoring {} irq.", self.irq);
             }
         }
 

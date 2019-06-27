@@ -699,6 +699,11 @@ impl Vcpu for WhpVirtualProcessor {
                         if let Some((evt, datamatch)) = self.mmio_events.get(&mmio_addr) {
                             if datamatch.matches(mmio_data) {
                                 evt.write(1);
+                                // forcefully release the borrowed context.
+                                // This is a quick hack to avoid multiple borrows.
+                                // The alternative would be to propagate an exit (e.g. Unknown or
+                                // a new one and let the caller run the vcpu again).
+                                { let a = whp_context; }
                                 return self.run();
                             }
                         }
@@ -729,6 +734,8 @@ impl Vcpu for WhpVirtualProcessor {
                         if let Some((evt, datamatch)) = self.pio_events.get(&(port as u64)) {
                             if datamatch.matches(io_data) {
                                 evt.write(1);
+                                // forcefully release the borrowed context
+                                { let a = whp_context; }
                                 return self.run();
                             }
                         }
@@ -767,6 +774,8 @@ impl Vcpu for WhpVirtualProcessor {
                             unsafe {
                                 evt.write(1);
                             }
+                            // forcefully release the borrowed context
+                            { let a = whp_context; }
                             self.run()?
                         },
                         None => VcpuExit::IoapicEoi
