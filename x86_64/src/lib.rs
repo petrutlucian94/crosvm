@@ -551,6 +551,12 @@ impl X8664arch {
 
         let mut com_evt_1_3 = InterruptEvent::new().map_err(Error::CreateEventFd)?;
         let mut com_evt_2_4 = InterruptEvent::new().map_err(Error::CreateEventFd)?;
+
+        vm.register_irqfd(&mut com_evt_1_3, 4)
+            .map_err(Error::RegisterIrqfd)?;
+        vm.register_irqfd(&mut com_evt_2_4, 3)
+            .map_err(Error::RegisterIrqfd)?;
+
         let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::CloneEventFd)?,
             Box::new(stdout()),
@@ -633,11 +639,6 @@ impl X8664arch {
                 .insert(nul_device.clone(), 0xcf8, 0x8, false)
                 .unwrap();
         }
-
-        vm.register_irqfd(&mut com_evt_1_3, 4)
-            .map_err(Error::RegisterIrqfd)?;
-        vm.register_irqfd(&mut com_evt_2_4, 3)
-            .map_err(Error::RegisterIrqfd)?;
 
         Ok((io_bus, stdio_serial))
     }
