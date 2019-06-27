@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+use std::cmp;
 use std::collections::HashMap;
 
 use crate::{Alloc, Error, Result};
@@ -63,18 +64,29 @@ impl AddressAllocator {
         })
     }
 
-    /// Allocates a range of addresses from the managed region with an optional tag.
-    /// Returns allocated_address. (allocated_address, size, tag) can be retrieved
-    /// through the `get` method.
-    pub fn allocate(&mut self, size: u64, alloc: Alloc, tag: String) -> Result<u64> {
+    /// Allocates a range of addresses from the managed region with an optional tag
+    /// and minimal alignment. Returns allocated_address. (allocated_address, size, tag)
+    /// can be retrieved through the `get` method.
+    pub fn allocate_with_align(
+        &mut self,
+        size: u64,
+        alloc: Alloc,
+        tag: String,
+        alignment: u64,
+    ) -> Result<u64> {
+        let alignment = cmp::max(self.alignment, alignment);
+
         if self.allocs.contains_key(&alloc) {
             return Err(Error::ExistingAlloc(alloc));
         }
         if size == 0 {
             return Err(Error::AllocSizeZero);
         }
-        let align_adjust = if self.next_addr % self.alignment != 0 {
-            self.alignment - (self.next_addr % self.alignment)
+        if !alignment.is_power_of_two() {
+            return Err(Error::BadAlignment);
+        }
+        let align_adjust = if self.next_addr % alignment != 0 {
+            alignment - (self.next_addr % alignment)
         } else {
             0
         };
@@ -93,6 +105,10 @@ impl AddressAllocator {
 
         self.allocs.insert(alloc, (addr, size, tag));
         Ok(addr)
+    }
+
+    pub fn allocate(&mut self, size: u64, alloc: Alloc, tag: String) -> Result<u64> {
+        self.allocate_with_align(size, alloc, tag, self.alignment)
     }
 
     /// Returns allocation associated with `alloc`, or None if no such allocation exists.
