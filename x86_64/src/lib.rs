@@ -349,6 +349,9 @@ impl arch::LinuxArch for X8664arch {
             Some(pci_bus.clone()),
         )?;
 
+        let io_apic = Arc::new(Mutex::new(devices::Ioapic::new()));
+        mmio_bus.insert(io_apic.clone(), 0xfec00000, 0x100, false);
+
         for param in components.extra_kernel_params {
             cmdline.insert_str(&param).map_err(Error::Cmdline)?;
         }
