@@ -32,7 +32,7 @@ use sys_util::{
 };
 
 pub use crate::cap::*;
-pub use crate::interrupt_event::InterruptEvent;
+pub use crate::interrupt_event::{InterruptEvent, InterruptMode};
 pub use crate::vcpu::WhpVirtualProcessor;
 use crate::vcpu::*;
 pub use crate::common::*;
@@ -542,6 +542,9 @@ impl Vm {
         vcpus: &mut [WhpVirtualProcessor],
     ) -> Result<()> {
         // We're emulating this KVM feature at the whp vcpu level.
+        evt.map(&self.partition, gsi);
+        evt.set_mode(InterruptMode::Level);
+
         for vcpu in vcpus {
             vcpu.register_irqfd_resample(evt, resample_evt, gsi)?;
         }

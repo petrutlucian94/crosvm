@@ -16,10 +16,18 @@ use sys_util::{Result, EventFd, warn, info};
 /// For convenience, we'll wrap an EventFd so that this structure can also
 /// be used for resample events, triggered by us when receiving an level
 /// interrupt EOI.
+
+#[derive(Copy, Clone, Debug)]
+pub enum InterruptMode {
+    Edge,
+    Level
+}
+
 pub struct InterruptEvent {
     partition: Option<Partition>,
     irq: u32,
-    eventfd: EventFd
+    eventfd: EventFd,
+    mode: InterruptMode
 }
 
 impl InterruptEvent {
@@ -28,7 +36,8 @@ impl InterruptEvent {
         Ok(InterruptEvent{
             partition: None,
             irq: 0,
-            eventfd: EventFd::new()?
+            eventfd: EventFd::new()?,
+            mode: InterruptMode::Edge
         })
     }
 
@@ -39,8 +48,13 @@ impl InterruptEvent {
             WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed as UINT64);
         interrupt.set_DestinationMode(
             WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModePhysical as UINT64);
-        interrupt.set_TriggerMode(
-            WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge as UINT64);
+
+        let mode = match self.mode {
+            InterruptMode::Level => WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeLevel,
+            InterruptMode::Edge => WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge
+        };
+        interrupt.set_TriggerMode(mode as UINT64);
+        // TODO(lpetrut): allow targeting other cpus
         interrupt.Destination = 0;
 
         // Vectors 0x30-0x3f are used for ISA interrupts.
@@ -57,6 +71,10 @@ impl InterruptEvent {
         }
 
         Ok(())
+    }
+
+    pub fn set_mode(&mut self, mode: InterruptMode) {
+        self.mode = mode;
     }
 
     pub fn map(&mut self, partition: &Partition, irq: u32) {
@@ -94,7 +112,8 @@ impl InterruptEvent {
         Ok(InterruptEvent {
             eventfd: self.eventfd.try_clone()?,
             partition: partition,
-            irq: self.irq
+            irq: self.irq,
+            mode: self.mode
         })
     }
 }
@@ -110,7 +129,8 @@ impl FromRawHandle for InterruptEvent {
         InterruptEvent {
             eventfd: EventFd::from_raw_handle(fd),
             partition: None,
-            irq: 0
+            irq: 0,
+            mode: InterruptMode::Edge
         }
     }
 }
