@@ -17,7 +17,7 @@ use std::thread::JoinHandle;
 use vm_memory::{GuestMemoryMmap};
 
 use devices::virtio::{self, VirtioDevice};
-use devices::{self, PciDevice, VirtioPciDevice};
+use devices::{self, PciDevice, VirtioPciDevice, Serial};
 use qcow::{self, ImageType, QcowFile};
 use remain::sorted;
 use sync::{Condvar, Mutex};
@@ -381,8 +381,8 @@ fn run_control(
 ) -> Result<()> {
 
 
-    let stdin_handle = stdin();
-    let stdin_lock = stdin_handle.lock();
+    // let stdin_handle = stdin();
+    // let stdin_lock = stdin_handle.lock();
     // stdin_lock
     //     .set_raw_mode()
     //     .expect("failed to set terminal raw mode");
@@ -412,6 +412,7 @@ fn run_control(
         vcpu_handles.push(handle);
     }
     vcpu_thread_barrier.wait();
+    start_console_handler(linux.stdio_serial.clone());
 
     // Wait for the exit event.
     &linux.exit_evt.read();
@@ -473,4 +474,19 @@ fn run_control(
     //     }
     // }
     // Ok(())
+}
+
+fn start_console_handler(guest_serial: Arc<Mutex<Serial>>) {
+    thread::Builder::new()
+        .name(format!("console_handler"))
+        .spawn(move || {
+            for byte in io::stdin().lock().bytes() {
+                let ptr = &byte.unwrap() as *const _;
+                let buff = unsafe { std::slice::from_raw_parts(ptr, 1) };
+                guest_serial
+                    .lock()
+                    .queue_input_bytes(&buff)
+                    .expect("failed to queue bytes into serial port");
+            }
+        });
 }
