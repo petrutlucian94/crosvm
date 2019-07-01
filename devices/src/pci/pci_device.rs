@@ -55,7 +55,7 @@ pub trait PciDevice: Send {
     fn assign_irq(
         &mut self,
         _irq_evt: InterruptEvent,
-        _irq_resample_evt: InterruptEvent,
+        _irq_resample_evt: EventFd,
         _irq_num: u32,
         _irq_pin: PciInterruptPin,
     ) {
@@ -153,7 +153,7 @@ impl<T: PciDevice + ?Sized> PciDevice for Box<T> {
     fn assign_irq(
         &mut self,
         irq_evt: InterruptEvent,
-        irq_resample_evt: InterruptEvent,
+        irq_resample_evt: EventFd,
         irq_num: u32,
         irq_pin: PciInterruptPin,
     ) {

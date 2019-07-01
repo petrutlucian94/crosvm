@@ -62,7 +62,7 @@ pub trait VirtioDevice: Send {
         &mut self,
         mem: GuestMemoryMmap,
         interrupt_evt: InterruptEvent,
-        interrupt_resample_evt: InterruptEvent,
+        interrupt_resample_evt: EventFd,
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
         queue_evts: Vec<EventFd>,

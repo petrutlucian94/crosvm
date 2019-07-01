@@ -1,15 +1,24 @@
-struct WhpInterruptController {
+use libwhp::platform::*;
+use libwhp::common::*;
+
+use sys_util::{Result, warn};
+
+pub use crate::split_irqchip_common::*;
+
+pub struct WhpInterruptController {
     partition: Partition,
 }
 
 impl WhpInterruptController {
     pub fn new(partition: Partition) -> Result<WhpInterruptController> {
-        WhpInterruptController {
+        Ok(WhpInterruptController {
             partition: partition.clone()
-        }
+        })
     }
 }
 
+// Unfortunately this can't be part of the whp crate,
+// otherwise we end up having a circular dependency.
 impl InterruptController for WhpInterruptController {
     fn inject_interrupt(&self, vector: u8,
                         trigger_mode: TriggerMode,
@@ -32,22 +41,25 @@ impl InterruptController for WhpInterruptController {
             DeliveryMode::Lowest => WHV_INTERRUPT_TYPE::WHvX64InterruptTypeLowestPriority,
             DeliveryMode::NMI => WHV_INTERRUPT_TYPE::WHvX64InterruptTypeNmi,
             DeliveryMode::Init => WHV_INTERRUPT_TYPE::WHvX64InterruptTypeInit,
-            DeliveryMode::Startup = WHV_INTERRUPT_TYPE::WHvX64InterruptTypeSipi,
-            DeliveryMode::External = WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed,
-            _ => warn!("Dropping interrupt. Unsupported delivery mode: {:?}",
+            DeliveryMode::Startup => WHV_INTERRUPT_TYPE::WHvX64InterruptTypeSipi,
+            DeliveryMode::External => WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed,
+            _ => {
+                warn!("Dropping interrupt. Unsupported delivery mode: {:?}",
                        delivery_mode);
-        }
+                return;
+            }
+        };
 
         let whp_dest_mode = match dest_mode {
             DestinationMode::Logical => WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModeLogical,
             DestinationMode::Physical => WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModePhysical
-        }
+        };
 
         interrupt.set_TriggerMode(whp_trigger_mode as UINT64);
         interrupt.set_InterruptType(whp_interrupt_type as UINT64);
         interrupt.set_DestinationMode(whp_dest_mode as UINT64);
-        interrupt.Destination = dest;
-        interrupt.Vector = vector;
+        interrupt.Destination = dest as UINT32;
+        interrupt.Vector = vector as UINT32;
 
         self.partition.request_interrupt(&mut interrupt).unwrap();
     }

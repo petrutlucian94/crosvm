@@ -21,6 +21,7 @@ kvm = { path = "../kvm" }
 
 [target.'cfg(windows)'.dependencies]
 whp = { path = "../whp" }
+libwhp = { path = "../libwhp" }
 
 [dependencies.vm-memory]
 path = "../vm-memory"

@@ -19,7 +19,6 @@ use std::cell::RefCell;
 
 pub use crate::common::*;
 use crate::whp_structs::*;
-pub use crate::interrupt_event::InterruptEvent;
 
 use libwhp::instruction_emulator::*;
 pub use libwhp::*;
@@ -29,7 +28,7 @@ use libwhp::instruction_emulator::{Emulator, EmulatorCallbacks};
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit, Result as VcpuResult};
 use vmm_vcpu::x86_64::{FpuState, MsrEntries, SpecialRegisters, StandardRegisters,
                        LapicState, CpuId};
-use sys_util::{EventFd, Result as WinResult};
+use sys_util::{EventFd, Result as WinResult, debug};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -83,7 +82,7 @@ impl WhpContext {
 pub struct WhpVirtualProcessor {
     emulator: Emulator<WhpContext>,
     whp_context: RefCell<WhpContext>,
-    resample_events: BTreeMap<u32, InterruptEvent>,
+    resample_events: BTreeMap<u32, EventFd>,
     pio_events: BTreeMap<u64, (EventFd, Datamatch)>,
     mmio_events: BTreeMap<u64, (EventFd, Datamatch)>
 
@@ -231,10 +230,11 @@ impl WhpVirtualProcessor {
 
     pub fn register_irqfd_resample(
         &mut self,
-        evt: &mut InterruptEvent,
-        resample_evt: &InterruptEvent,
+        _evt: &mut EventFd,
+        resample_evt: &EventFd,
         gsi: u32,
     ) -> WinResult<()> {
+        println!("Registering resample event {}", gsi);
         self.resample_events.insert(
             gsi, resample_evt.try_clone()?);
         Ok(())
@@ -698,6 +698,7 @@ impl Vcpu for WhpVirtualProcessor {
                     else {
                         if let Some((evt, datamatch)) = self.mmio_events.get(&mmio_addr) {
                             if datamatch.matches(mmio_data) {
+                                debug!("Mmio match @ {:x}", mmio_addr);
                                 evt.write(1);
                                 // forcefully release the borrowed context.
                                 // This is a quick hack to avoid multiple borrows.
@@ -733,6 +734,7 @@ impl Vcpu for WhpVirtualProcessor {
                     else {
                         if let Some((evt, datamatch)) = self.pio_events.get(&(port as u64)) {
                             if datamatch.matches(io_data) {
+                                println!("pio match");
                                 evt.write(1);
                                 // forcefully release the borrowed context
                                 { let a = whp_context; }
@@ -769,9 +771,11 @@ impl Vcpu for WhpVirtualProcessor {
                     // is to avoid generating Eoi exits. We'll still get an exit
                     // but we're not going to propagate it, emulating KVM's
                     // API.
+                    debug!("Resample {}", &eoi_ctxt.InterruptVector);
                     match self.resample_events.get(&eoi_ctxt.InterruptVector) {
                         Some(evt) => {
                             unsafe {
+                                debug!("resample");
                                 evt.write(1);
                             }
                             // forcefully release the borrowed context

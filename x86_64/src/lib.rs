@@ -65,7 +65,8 @@ use vmm_vcpu::vcpu::Vcpu;
 use crate::bootparam::boot_params;
 use crate::bootparam::E820_RAM;
 use arch::{RunnableLinuxVm, VmComponents};
-use devices::{PciConfigIo, PciDevice, PciInterruptPin};
+use devices::{PciConfigIo, PciDevice, PciInterruptPin, InterruptEvent,
+              Ioapic, WhpInterruptController};
 
 #[cfg(windows)]
 use whp::*;
@@ -333,12 +334,19 @@ impl arch::LinuxArch for X8664arch {
 
         let exit_evt = EventFd::new().map_err(Error::CreateEventFd)?;
 
+        let mut io_apic = devices::Ioapic::new();
+        let int_ctrl = WhpInterruptController::new(vm.get_partition()).unwrap();
+        io_apic.set_interrupt_controller(int_ctrl);
+
+        let io_apic = Arc::new(Mutex::new(io_apic));
+        mmio_bus.insert(io_apic.clone(), 0xfec00000, 0x100, false);
+
         let pci_devices =
             create_devices(&mem, &exit_evt).map_err(|e| Error::CreateDevices(Box::new(e)))?;
         let (pci, pci_irqs) =
             arch::generate_pci_root(
                 pci_devices, &mut mmio_bus, &mut resources,
-                &mut vm, &mut vcpus)
+                &mut vm, &mut vcpus, io_apic.clone())
                 .map_err(Error::CreatePciRoot)?;
         let pci_bus = Arc::new(Mutex::new(PciConfigIo::new(pci)));
 
@@ -347,10 +355,8 @@ impl arch::LinuxArch for X8664arch {
             split_irqchip,
             exit_evt.try_clone().map_err(Error::CloneEventFd)?,
             Some(pci_bus.clone()),
+            io_apic.clone(),
         )?;
-
-        let io_apic = Arc::new(Mutex::new(devices::Ioapic::new()));
-        mmio_bus.insert(io_apic.clone(), 0xfec00000, 0x100, false);
 
         for param in components.extra_kernel_params {
             cmdline.insert_str(&param).map_err(Error::Cmdline)?;
@@ -541,6 +547,7 @@ impl X8664arch {
         split_irqchip: bool,
         exit_evt: EventFd,
         pci: Option<Arc<Mutex<devices::PciConfigIo>>>,
+        io_apic: Arc<Mutex<Ioapic<WhpInterruptController>>>,
     ) -> Result<(devices::Bus, Arc<Mutex<devices::Serial>>)> {
         struct NoDevice;
         impl devices::BusDevice for NoDevice {
@@ -551,13 +558,14 @@ impl X8664arch {
 
         let mut io_bus = devices::Bus::new();
 
-        let mut com_evt_1_3 = InterruptEvent::new().map_err(Error::CreateEventFd)?;
-        let mut com_evt_2_4 = InterruptEvent::new().map_err(Error::CreateEventFd)?;
+        let mut com_evt_1_3 = InterruptEvent::new(4, io_apic.clone()).map_err(Error::CreateEventFd)?;
+        let mut com_evt_2_4 = InterruptEvent::new(4, io_apic.clone()).map_err(Error::CreateEventFd)?;
 
-        vm.register_irqfd(&mut com_evt_1_3, 4)
-            .map_err(Error::RegisterIrqfd)?;
-        vm.register_irqfd(&mut com_evt_2_4, 3)
-            .map_err(Error::RegisterIrqfd)?;
+        // TODO(lpetrut): do this for kvm.
+        // vm.register_irqfd(&mut com_evt_1_3, 4)
+        //     .map_err(Error::RegisterIrqfd)?;
+        // vm.register_irqfd(&mut com_evt_2_4, 3)
+        //     .map_err(Error::RegisterIrqfd)?;
 
         let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::CloneEventFd)?,
@@ -612,9 +620,9 @@ impl X8664arch {
             .unwrap();
 
         // TODO(lpetrut): find out if WHP can emulate a timer for us.
-        let mut pit_evt = InterruptEvent::new().map_err(Error::CreateEventFd)?;
-        vm.register_irqfd(&mut pit_evt, 0)
-            .map_err(Error::RegisterIrqfd)?;
+        let mut pit_evt = InterruptEvent::new(0, io_apic.clone()).map_err(Error::CreateEventFd)?;
+        // vm.register_irqfd(&mut pit_evt, 0)
+        //     .map_err(Error::RegisterIrqfd)?;
         let pit = Arc::new(Mutex::new(
             devices::Pit::new(
                 pit_evt.try_clone().map_err(Error::CloneEventFd)?,

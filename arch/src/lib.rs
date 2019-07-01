@@ -15,9 +15,10 @@ use std::sync::Arc;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap, GuestMemoryError};
 
 use devices::virtio::VirtioDevice;
+use devices::split_irqchip_common::InterruptController;
 use devices::{
     Bus, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
-    Serial, Ioapic
+    Serial, Ioapic, WhpInterruptController
 };
 use whp::{IoeventAddress, WhpManager, WhpVirtualProcessor, Vm};
 use resources::SystemAllocator;
@@ -28,7 +29,7 @@ use sys_util::{EventFd};
 pub type InterruptEvent = sys_util::EventFd;
 
 #[cfg(windows)]
-pub use whp::{InterruptEvent};
+pub use devices::InterruptEvent;
 
 
 /// Holds the pieces needed to build a VM. Passed to `build_vm` in the `LinuxArch` trait below to
@@ -51,7 +52,7 @@ pub struct RunnableLinuxVm {
     pub exit_evt: EventFd,
     pub vcpus: Vec<WhpVirtualProcessor>,
     pub vcpu_affinity: Vec<usize>,
-    pub irq_chip: Arc<Mutex<Ioapic>>,
+    pub irq_chip: Arc<Mutex<Ioapic<WhpInterruptController>>>,
     pub io_bus: Bus,
     pub mmio_bus: Bus,
 }
@@ -145,7 +146,8 @@ pub fn generate_pci_root(
     mmio_bus: &mut Bus,
     resources: &mut SystemAllocator,
     vm: &mut Vm,
-    vcpus: &mut [WhpVirtualProcessor]
+    vcpus: &mut [WhpVirtualProcessor],
+    io_apic: Arc<Mutex<Ioapic<WhpInterruptController>>>
 ) -> Result<(PciRoot, Vec<(u32, PciInterruptPin)>), DeviceRegistrationError>
 {
     let mut root = PciRoot::new();
@@ -154,8 +156,7 @@ pub fn generate_pci_root(
         // Only support one bus.
         device.assign_bus_dev(0, dev_idx as u8);
 
-        let mut irqfd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
-        let irq_resample_fd = InterruptEvent::new().map_err(DeviceRegistrationError::EventFdCreate)?;
+        let irq_resample_fd = EventFd::new().map_err(DeviceRegistrationError::EventFdCreate)?;
         let irq_num = resources
             .allocate_irq()
             .ok_or(DeviceRegistrationError::AllocateIrq)? as u32;
@@ -166,10 +167,14 @@ pub fn generate_pci_root(
             3 => PciInterruptPin::IntD,
             _ => panic!(""), // Obviously not possible, but the compiler is not smart enough.
         };
+        // TODO(lpetrut): properly handle the eventfd so that we don't break kvm.
+        // WHP only cares about the resample event, so we're passing a stub for
+        // the irq fd.
         vm.register_irqfd_resample(
-            &mut irqfd, &irq_resample_fd, irq_num,
+            &mut EventFd::new().unwrap(), &irq_resample_fd, irq_num,
             vcpus)
             .map_err(DeviceRegistrationError::RegisterIrqfd)?;
+        let mut irqfd = InterruptEvent::new(irq_num, io_apic.clone()).map_err(DeviceRegistrationError::EventFdCreate)?;
         device.assign_irq(irqfd, irq_resample_fd, irq_num, pci_irq_pin);
         pci_irqs.push((dev_idx as u32, pci_irq_pin));
 

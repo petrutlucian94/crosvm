@@ -11,7 +11,6 @@ extern crate kvm_bindings;
 extern crate vm_memory;
 
 mod cap;
-mod interrupt_event;
 pub mod vcpu;
 mod whp_structs;
 pub mod common;
@@ -32,7 +31,6 @@ use sys_util::{
 };
 
 pub use crate::cap::*;
-pub use crate::interrupt_event::{InterruptEvent, InterruptMode};
 pub use crate::vcpu::WhpVirtualProcessor;
 use crate::vcpu::*;
 pub use crate::common::*;
@@ -252,6 +250,10 @@ impl Vm {
             mappings,
             guest_mem
         })
+    }
+
+    pub fn get_partition(&self) -> Partition {
+        self.partition.clone()
     }
 
     fn set_vcpu_count(partition: &mut Partition, cpu_count: usize) {
@@ -521,9 +523,9 @@ impl Vm {
         target_arch = "arm",
         target_arch = "aarch64"
     ))]
-    pub fn register_irqfd(&self, evt: &mut InterruptEvent, gsi: u32) -> Result<()> {
-        evt.map(&self.partition, gsi);
-        Ok(())
+    pub fn register_irqfd(&self, evt: &mut EventFd, gsi: u32) -> Result<()> {
+        unimplemented!("WHP does not emulate IO-APIC devices. Use \
+                        devices::InterruptEvent")
     }
 
     /// Registers an event that will, when signalled, trigger the `gsi` irq, and `resample_evt` will
@@ -536,15 +538,11 @@ impl Vm {
     ))]
     pub fn register_irqfd_resample(
         &self,
-        evt: &mut InterruptEvent,
-        resample_evt: &InterruptEvent,
+        evt: &mut EventFd,
+        resample_evt: &EventFd,
         gsi: u32,
         vcpus: &mut [WhpVirtualProcessor],
     ) -> Result<()> {
-        // We're emulating this KVM feature at the whp vcpu level.
-        evt.map(&self.partition, gsi);
-        evt.set_mode(InterruptMode::Level);
-
         for vcpu in vcpus {
             vcpu.register_irqfd_resample(evt, resample_evt, gsi)?;
         }
@@ -564,11 +562,10 @@ impl Vm {
     ))]
     pub fn unregister_irqfd(
         &self,
-        evt: &mut InterruptEvent,
+        _evt: &mut EventFd,
         gsi: u32,
         vcpus: &mut [WhpVirtualProcessor],
     ) -> Result<()> {
-        evt.unmap();
         for vcpu in vcpus {
             vcpu.unregister_irqfd_resample(gsi)?;
         }

@@ -59,9 +59,9 @@ struct MsiDataMessage {
     reserved2: BitField16,
 }
 
-trait InterruptController {
-    fn inject_interrupt(&self, vector: u8,
-                        trigger_mode: TriggerMode,
-                        dest: u8, dest_mode: DestinationMode,
-                        delivery_mode: DeliveryMode) {
+pub trait InterruptController {
+    fn inject_interrupt(
+        &self, vector: u8, trigger_mode: TriggerMode,
+        dest: u8, dest_mode: DestinationMode,
+        delivery_mode: DeliveryMode);
 }

@@ -89,10 +89,11 @@ pub struct Ioapic<T: InterruptController> {
     // IOREGSEL is technically 32 bits, but only bottom 8 are writable: all others are fixed to 0.
     ioregsel: u8,
     // This can be a frontend for a platform emulated lapic
-    interrupt_controller: T
+    interrupt_controller: Option<T>
 }
 
-impl BusDevice for Ioapic {
+impl<T: InterruptController> BusDevice for Ioapic<T> where
+    T: Send {
     fn debug_label(&self) -> String {
         "userspace IOAPIC".to_string()
     }
@@ -150,8 +151,9 @@ impl BusDevice for Ioapic {
     }
 }
 
-impl Ioapic {
-    pub fn new() -> Ioapic {
+impl<T: InterruptController> Ioapic<T> where
+    T: Send {
+    pub fn new() -> Ioapic<T> {
         let mut entry = RedirectionTableEntry::new();
         entry.set_interrupt_mask(true);
         let entries = [entry; whp::NUM_IOAPIC_PINS];
@@ -197,17 +199,18 @@ impl Ioapic {
         };
 
         // De-assert the interrupt.
-        if !line_status {
-            self.current_interrupt_level_bitmap &= !(1 << irq);
-            return true;
-        }
+        // if !line_status {
+        //     self.current_interrupt_level_bitmap &= !(1 << irq);
+        //     return true;
+        // }
 
+        // TODO(lpetrut): do we need interrupt level checks?
         // If it's an edge-triggered interrupt that's already high we ignore it.
-        if entry.get_trigger_mode() == TriggerMode::Edge
-            && self.current_interrupt_level_bitmap & (1 << irq) != 0
-        {
-            return false;
-        }
+        // if entry.get_trigger_mode() == TriggerMode::Edge
+        //     && self.current_interrupt_level_bitmap & (1 << irq) != 0
+        // {
+        //     return false;
+        // }
 
         self.current_interrupt_level_bitmap |= 1 << irq;
 
@@ -230,12 +233,19 @@ impl Ioapic {
         // TODO(mutexlox): Pulse (assert and deassert) interrupt
         let injected = true;
 
-        self.inject_interrupt(
-            entry.get_vector(),
-            entry.get_trigger_mode(),
-            entry.get_dest_id(),
-            entry.get_dest_mde(),
-            entry.get_delivery_mode());
+        match &self.interrupt_controller {
+            Some(ref ctrl) => {
+                ctrl.inject_interrupt(
+                    entry.get_vector(),
+                    entry.get_trigger_mode(),
+                    entry.get_dest_id(),
+                    entry.get_dest_mode(),
+                    entry.get_delivery_mode())
+            }
+            None => {
+                warn!("IO-APIC: No interrupt controller mapped. Dropping interrupt.")
+            }
+        }
 
         if entry.get_trigger_mode() == TriggerMode::Level && line_status && injected {
             entry.set_remote_irr(true);
@@ -246,25 +256,10 @@ impl Ioapic {
         injected
     }
 
-    pub fn set_interrupt_controller<T: InterruptController>(
+    pub fn set_interrupt_controller(
         &mut self, interrupt_controller: T)
     {
-        self.interrupt_controller = interrupt_controller;
-    }
-
-    fn inject_interrupt(&self, vector: u8,
-                        trigger_mode: TriggerMode,
-                        dest: u8, dest_mode: DestinationMode,
-                        delivery_mode: DeliveryMode) {
-        match &self.interrupt_controller {
-            Some(ref ctrl) => {
-                ctrl.inject_interupt(vector, trigger_mode, dest,
-                                     dest_mode, delivery_mode)
-            }
-            None => {
-                warn!("IO-APIC: No interrupt controller mapped. Dropping interrupt.")
-            }
-        }
+        self.interrupt_controller = Some(interrupt_controller);
     }
 
     fn ioapic_write(&mut self, val: u32) {

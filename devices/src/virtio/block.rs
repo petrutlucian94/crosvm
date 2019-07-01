@@ -592,7 +592,7 @@ struct Worker<T: DiskFile> {
     read_only: bool,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: InterruptEvent,
-    interrupt_resample_evt: InterruptEvent,
+    interrupt_resample_evt: EventFd,
 }
 
 impl<T: DiskFile> Worker<T> {
@@ -808,7 +808,7 @@ impl<T: 'static + DiskFile + Send> VirtioDevice for Block<T> {
         &mut self,
         mem: GuestMemoryMmap,
         interrupt_evt: InterruptEvent,
-        interrupt_resample_evt: InterruptEvent,
+        interrupt_resample_evt: EventFd,
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,

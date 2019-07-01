@@ -23,6 +23,7 @@ mod serial;
 pub mod split_irqchip_common;
 mod utils;
 pub mod virtio;
+pub mod whp_dev;
 
 pub use self::bus::Error as BusError;
 pub use self::bus::{Bus, BusDevice, BusRange};
@@ -42,4 +43,7 @@ pub use self::virtio::VirtioPciDevice;
 pub type InterruptEvent = sys_util::EventFd;
 
 #[cfg(windows)]
-pub use whp::{InterruptEvent};
+pub use self::whp_dev::interrupt_event::InterruptEvent;
+
+#[cfg(windows)]
+pub use self::whp_dev::interrupt_controller::WhpInterruptController;

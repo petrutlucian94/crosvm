@@ -21,7 +21,7 @@ use devices::{self, PciDevice, VirtioPciDevice};
 use qcow::{self, ImageType, QcowFile};
 use remain::sorted;
 use sync::{Condvar, Mutex};
-use sys_util::{self, error, warn, EventFd};
+use sys_util::{self, error, debug, warn, EventFd};
 use vm_control::{VmRunMode};
 
 use vmm_vcpu::vcpu::{Vcpu, VcpuExit};
@@ -288,6 +288,7 @@ fn run_vcpu (
                             println!("Exception. Breaking");
                             break;
                         }
+                        VcpuExit::IoapicEoi => debug!("unexpected eoi exit"),
                         r => warn!("unexpected vcpu exit: {:?}", r),
                     },
                     Err(e) => error!("vcpu hit unknown error: {}", e),

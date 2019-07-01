@@ -157,7 +157,7 @@ pub struct VirtioPciDevice {
 
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: Option<InterruptEvent>,
-    interrupt_resample_evt: Option<InterruptEvent>,
+    interrupt_resample_evt: Option<EventFd>,
     queues: Vec<Queue>,
     queue_evts: Vec<EventFd>,
     mem: Option<GuestMemoryMmap>,
@@ -311,7 +311,7 @@ impl PciDevice for VirtioPciDevice {
     fn assign_irq(
         &mut self,
         irq_evt: InterruptEvent,
-        irq_resample_evt: InterruptEvent,
+        irq_resample_evt: EventFd,
         irq_num: u32,
         irq_pin: PciInterruptPin,
     ) {
