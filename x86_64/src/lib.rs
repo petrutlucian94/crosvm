@@ -326,7 +326,7 @@ impl arch::LinuxArch for X8664arch {
 
         let vcpu_affinity = components.vcpu_affinity;
 
-        let irq_chip = Self::create_irq_chip(&vm)?;
+        // let irq_chip = Self::create_irq_chip(&vm)?;
         let mut cmdline = Self::get_base_linux_cmdline();
 
         let mut mmio_bus = devices::Bus::new();
@@ -359,6 +359,8 @@ impl arch::LinuxArch for X8664arch {
         // separate out load_kernel from other setup to get a specific error for
         // kernel loading
         let kernel_end = Self::load_kernel(&mem, &mut components.kernel_image)?;
+
+        let irq_chip = io_apic;
 
         Self::setup_system_memory(
             &mem,

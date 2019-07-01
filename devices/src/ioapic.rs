@@ -79,7 +79,7 @@ fn decode_irq_from_selector(selector: u8) -> (usize, bool) {
 // not exactly the same as) KVM's IOAPIC.
 const RTC_IRQ: usize = 0x8;
 
-pub struct Ioapic {
+pub struct Ioapic<T: InterruptController> {
     id: u32,
     // Remote IRR for Edge Triggered Real Time Clock interrupts, which allows the CMOS to know when
     // one of its interrupts is being coalesced.
@@ -88,6 +88,8 @@ pub struct Ioapic {
     redirect_table: [RedirectionTableEntry; whp::NUM_IOAPIC_PINS],
     // IOREGSEL is technically 32 bits, but only bottom 8 are writable: all others are fixed to 0.
     ioregsel: u8,
+    // This can be a frontend for a platform emulated lapic
+    interrupt_controller: T
 }
 
 impl BusDevice for Ioapic {
@@ -159,6 +161,7 @@ impl Ioapic {
             current_interrupt_level_bitmap: 0,
             redirect_table: entries,
             ioregsel: 0,
+            interrupt_controller: None
         }
     }
 
@@ -227,6 +230,13 @@ impl Ioapic {
         // TODO(mutexlox): Pulse (assert and deassert) interrupt
         let injected = true;
 
+        self.inject_interrupt(
+            entry.get_vector(),
+            entry.get_trigger_mode(),
+            entry.get_dest_id(),
+            entry.get_dest_mde(),
+            entry.get_delivery_mode());
+
         if entry.get_trigger_mode() == TriggerMode::Level && line_status && injected {
             entry.set_remote_irr(true);
         } else if irq == RTC_IRQ && injected {
@@ -234,6 +244,27 @@ impl Ioapic {
         }
 
         injected
+    }
+
+    pub fn set_interrupt_controller<T: InterruptController>(
+        &mut self, interrupt_controller: T)
+    {
+        self.interrupt_controller = interrupt_controller;
+    }
+
+    fn inject_interrupt(&self, vector: u8,
+                        trigger_mode: TriggerMode,
+                        dest: u8, dest_mode: DestinationMode,
+                        delivery_mode: DeliveryMode) {
+        match &self.interrupt_controller {
+            Some(ref ctrl) => {
+                ctrl.inject_interupt(vector, trigger_mode, dest,
+                                     dest_mode, delivery_mode)
+            }
+            None => {
+                warn!("IO-APIC: No interrupt controller mapped. Dropping interrupt.")
+            }
+        }
     }
 
     fn ioapic_write(&mut self, val: u32) {
@@ -272,12 +303,14 @@ impl Ioapic {
                     // "KVM: x86: ioapic: Fix level-triggered EOI and IOAPIC reconfigure race"
                     // is the fix for this.
                 }
+                println!("ioapic_entry[{:x}] = {:x}", index, entry.get_vector());
 
                 // TODO(mutexlox): route MSI.
                 if self.redirect_table[index].get_trigger_mode() == TriggerMode::Level
                     && self.current_interrupt_level_bitmap & (1 << index) != 0
                     && !self.redirect_table[index].get_interrupt_mask()
                 {
+                    println!("Servicing irq");
                     self.service_irq(index, true);
                 }
             }

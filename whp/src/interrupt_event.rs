@@ -17,17 +17,10 @@ use sys_util::{Result, EventFd, warn, info};
 /// be used for resample events, triggered by us when receiving an level
 /// interrupt EOI.
 
-#[derive(Copy, Clone, Debug)]
-pub enum InterruptMode {
-    Edge,
-    Level
-}
-
 pub struct InterruptEvent {
-    partition: Option<Partition>,
+    ioapic: Arc<Mutex<Option<Ioapic>>>,
     irq: u32,
     eventfd: EventFd,
-    mode: InterruptMode
 }
 
 impl InterruptEvent {
@@ -41,49 +34,23 @@ impl InterruptEvent {
         })
     }
 
-    pub fn interrupt(&self) -> Result<()> {
-        let mut interrupt: WHV_INTERRUPT_CONTROL = Default::default();
-
-        interrupt.set_InterruptType(
-            WHV_INTERRUPT_TYPE::WHvX64InterruptTypeFixed as UINT64);
-        interrupt.set_DestinationMode(
-            WHV_INTERRUPT_DESTINATION_MODE::WHvX64InterruptDestinationModePhysical as UINT64);
-
-        let mode = match self.mode {
-            InterruptMode::Level => WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeLevel,
-            InterruptMode::Edge => WHV_INTERRUPT_TRIGGER_MODE::WHvX64InterruptTriggerModeEdge
-        };
-        interrupt.set_TriggerMode(mode as UINT64);
-        // TODO(lpetrut): allow targeting other cpus
-        interrupt.Destination = 0;
-
-        // Vectors 0x30-0x3f are used for ISA interrupts.
-        // TODO(lpetrut): Are we doing the right thing here?
-        interrupt.Vector = self.irq + 0x30;
-
-        match &self.partition {
-            Some(ref partition) => {
-                partition.request_interrupt(&mut interrupt).unwrap()
-            }
-            None => {
-                warn!("InterruptEvent: no mapping found. Ignoring {} irq.", self.irq);
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn set_mode(&mut self, mode: InterruptMode) {
-        self.mode = mode;
-    }
-
-    pub fn map(&mut self, partition: &Partition, irq: u32) {
-        self.partition = Some(partition.clone());
+    pub fn map(&mut self, ioapic: Arc<Mutex<Ioapic>>, irq: u32) {
+        self.ioapic = Arc::clone(&ioapic);
         self.irq = irq;
     }
 
     pub fn unmap(&mut self) {
-        self.partition = None;
+        self.ioapic = None
+    }
+
+    fn interrupt(&self) -> Result<()> {
+        match &self.ioapic {
+            Some(ref ioapic) => {
+                ioapic.service_irq(self.irq, 1);
+            }
+            None => warn!("InterruptEvent: missing io-apic reference, dropping interrupt.");
+        }
+        Ok(())
     }
 
     /// Trigger an interrupt by signaling this event.
@@ -104,16 +71,15 @@ impl InterruptEvent {
 
     /// Clones this InterruptEvent object.
     pub fn try_clone(&self) -> Result<InterruptEvent> {
-        let partition = match self.partition {
-            Some(ref partition) => Some(partition.clone()),
-            None => None
+        let ioapic = match self.ioapic.lock().unwrap(){
+            Some(ref ioapic) => self.ioapic.clone(),
+            None => Arc::new(Mutex::new(None))
         };
 
         Ok(InterruptEvent {
             eventfd: self.eventfd.try_clone()?,
-            partition: partition,
+            ioapic: ioapic,
             irq: self.irq,
-            mode: self.mode
         })
     }
 }
@@ -124,13 +90,14 @@ impl AsRawHandle for InterruptEvent {
     }
 }
 
+// TODO(lpetrut): drop this if possible. We're losing
+// the irq and ioapic ref.
 impl FromRawHandle for InterruptEvent {
     unsafe fn from_raw_handle(fd: RawHandle) -> Self {
         InterruptEvent {
             eventfd: EventFd::from_raw_handle(fd),
-            partition: None,
+            ioapic: Arc::new(Mutex::new(None)),
             irq: 0,
-            mode: InterruptMode::Edge
         }
     }
 }

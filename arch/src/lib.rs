@@ -17,7 +17,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap, GuestMemoryError};
 use devices::virtio::VirtioDevice;
 use devices::{
     Bus, BusError, PciDevice, PciDeviceError, PciInterruptPin, PciRoot,
-    Serial,
+    Serial, Ioapic
 };
 use whp::{IoeventAddress, WhpManager, WhpVirtualProcessor, Vm};
 use resources::SystemAllocator;
@@ -51,7 +51,7 @@ pub struct RunnableLinuxVm {
     pub exit_evt: EventFd,
     pub vcpus: Vec<WhpVirtualProcessor>,
     pub vcpu_affinity: Vec<usize>,
-    pub irq_chip: Option<File>,
+    pub irq_chip: Arc<Mutex<Ioapic>>,
     pub io_bus: Bus,
     pub mmio_bus: Bus,
 }
