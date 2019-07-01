@@ -698,7 +698,7 @@ impl Vcpu for WhpVirtualProcessor {
                     else {
                         if let Some((evt, datamatch)) = self.mmio_events.get(&mmio_addr) {
                             if datamatch.matches(mmio_data) {
-                                debug!("Mmio match @ {:x}", mmio_addr);
+                                // debug!("Mmio match @ {:x}", mmio_addr);
                                 evt.write(1);
                                 // forcefully release the borrowed context.
                                 // This is a quick hack to avoid multiple borrows.
@@ -771,11 +771,13 @@ impl Vcpu for WhpVirtualProcessor {
                     // is to avoid generating Eoi exits. We'll still get an exit
                     // but we're not going to propagate it, emulating KVM's
                     // API.
-                    debug!("Resample {}", &eoi_ctxt.InterruptVector);
+                    // debug!("Resample {}", &eoi_ctxt.InterruptVector);
+                    // TODO(lpetrut): check why we're getting some unexpected
+                    // resample events.
                     match self.resample_events.get(&eoi_ctxt.InterruptVector) {
                         Some(evt) => {
                             unsafe {
-                                debug!("resample");
+                                // debug!("resample");
                                 evt.write(1);
                             }
                             // forcefully release the borrowed context

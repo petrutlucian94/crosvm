@@ -298,14 +298,12 @@ impl<T: InterruptController> Ioapic<T> where
                     // "KVM: x86: ioapic: Fix level-triggered EOI and IOAPIC reconfigure race"
                     // is the fix for this.
                 }
-                println!("ioapic_entry[{:x}] = {:x}", index, entry.get_vector());
 
                 // TODO(mutexlox): route MSI.
                 if self.redirect_table[index].get_trigger_mode() == TriggerMode::Level
                     && self.current_interrupt_level_bitmap & (1 << index) != 0
                     && !self.redirect_table[index].get_interrupt_mask()
                 {
-                    println!("Servicing irq");
                     self.service_irq(index, true);
                 }
             }

@@ -288,7 +288,8 @@ fn run_vcpu (
                             println!("Exception. Breaking");
                             break;
                         }
-                        VcpuExit::IoapicEoi => debug!("unexpected eoi exit"),
+                        VcpuExit::IoapicEoi => {},
+                        // VcpuExit::IoapicEoi => debug!("unexpected eoi exit"),
                         r => warn!("unexpected vcpu exit: {:?}", r),
                     },
                     Err(e) => error!("vcpu hit unknown error: {}", e),
