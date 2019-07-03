@@ -88,6 +88,10 @@ pub struct WhpVirtualProcessor {
 
 }
 
+// This isn't a value defined by WHP. We need a "non-success" code
+// for our instruction emulation, which contains two steps.
+pub const E_PENDING: HRESULT =  0x8000000;
+
 impl WhpVirtualProcessor {
     pub fn create_whp_vcpu(vp: VirtualProcessor) -> VcpuResult<Self> {
         return Ok(WhpVirtualProcessor {
