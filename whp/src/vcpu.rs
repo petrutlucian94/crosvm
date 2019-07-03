@@ -809,12 +809,22 @@ impl Vcpu for WhpVirtualProcessor {
     }
 
     fn get_lapic(&self) -> VcpuResult<LapicState> {
-        let state: LapicState = self.whp_context.borrow().vp.get_lapic()
+        let state: LapicStateRaw = self.whp_context.borrow().vp.get_lapic()
                     .map_err(|_| io::Error::last_os_error())?;
+
+        // TODO(lpetrut): Those two structures are identical,
+        // for now. We should probably define this somewhere (vmm-vcpu
+        // or libwhp) and avoid this unsafe cast.
+        let state = unsafe {
+            std::mem::transmute::<LapicStateRaw, LapicState>(state)
+        };
         Ok(state)
     }
 
     fn set_lapic(&self, klapic: &LapicState) -> VcpuResult<()> {
+        let klapic = unsafe {
+            std::mem::transmute::<&LapicState, &LapicStateRaw>(&klapic)
+        };
         self.whp_context.borrow().vp.set_lapic(klapic)
             .map_err(|_| io::Error::last_os_error())?;
 
