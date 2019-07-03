@@ -23,7 +23,7 @@ default-no-sandbox = []
 arch = { path = "arch" }
 assertions = { path = "assertions" }
 bit_field = { path = "bit_field" }
-byteorder = "=1.1.0"
+byteorder = "=1.2.1"
 devices = { path = "devices" }
 enumn = { path = "enumn" }
 kernel_cmdline = { path = "kernel_cmdline" }
