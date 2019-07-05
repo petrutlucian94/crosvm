@@ -16,7 +16,9 @@
 use std::collections::BTreeMap;
 use std::io;
 use std::cell::RefCell;
+use std::os::raw::*;
 
+use crate::{Vm, WhpManager};
 pub use crate::common::*;
 use crate::whp_structs::*;
 
@@ -66,22 +68,22 @@ impl Default for WhpMmioAccessData {
     }
 }
 
-pub struct WhpContext {
-    vp: VirtualProcessor,
+pub struct WhpContext<'a> {
+    vp: VirtualProcessor<'a>,
     last_exit_context: WHV_RUN_VP_EXIT_CONTEXT,
     io_access_data: WhpIoAccessData,
     mmio_access_data: WhpMmioAccessData,
 }
 
-impl WhpContext {
+impl<'a> WhpContext<'a> {
     fn get_run_context_ptr(&self) -> *const WHV_RUN_VP_EXIT_CONTEXT {
         &self.last_exit_context as *const WHV_RUN_VP_EXIT_CONTEXT
     }
 }
 
-pub struct WhpVirtualProcessor {
-    emulator: Emulator<WhpContext>,
-    whp_context: RefCell<WhpContext>,
+pub struct WhpVirtualProcessor<'a> {
+    emulator: Emulator<WhpContext<'a>>,
+    whp_context: RefCell<WhpContext<'a>>,
     resample_events: BTreeMap<u32, EventFd>,
     pio_events: BTreeMap<u64, (EventFd, Datamatch)>,
     mmio_events: BTreeMap<u64, (EventFd, Datamatch)>
@@ -92,10 +94,19 @@ pub struct WhpVirtualProcessor {
 // for our instruction emulation, which contains two steps.
 pub const E_PENDING: HRESULT =  0x8000000;
 
-impl WhpVirtualProcessor {
-    pub fn create_whp_vcpu(vp: VirtualProcessor) -> VcpuResult<Self> {
+impl<'a> WhpVirtualProcessor<'a> {
+    /// Constructs a new VCPU for `vm`.
+    ///
+    /// The `id` argument is the CPU number between [0, max vcpus).
+    fn new(id: c_ulong, _whp: &WhpManager, vm: &'a Vm<'a>) -> WinResult<WhpVirtualProcessor<'a>> {
+        let vp = vm.partition.create_virtual_processor(id).unwrap();
+        let wvp = WhpVirtualProcessor::create_whp_vcpu(vp).unwrap();
+        Ok(wvp)
+    }
+
+    pub fn create_whp_vcpu(vp: VirtualProcessor<'a>) -> VcpuResult<Self> {
         return Ok(WhpVirtualProcessor {
-            emulator: Emulator::<WhpContext>::new().unwrap(),
+            emulator: Emulator::<WhpContext<'a>>::new().unwrap(),
             whp_context: RefCell::new(WhpContext {
                 vp: vp,
                 last_exit_context: Default::default(),
@@ -108,7 +119,7 @@ impl WhpVirtualProcessor {
         });
     }
 
-    pub fn create_whp_vcpu_by_partition(p: Partition, index: UINT32) -> VcpuResult<Self> {
+    pub fn create_whp_vcpu_by_partition(p: &'a Partition, index: UINT32) -> VcpuResult<Self> {
         let vp = p.create_virtual_processor(index).unwrap();
 
         return Ok(WhpVirtualProcessor {
@@ -125,7 +136,7 @@ impl WhpVirtualProcessor {
         });
     }
 
-    pub fn handle_io_port_exit(&self, whp_context: &mut WhpContext) -> Result<(), WHPError> {
+    pub fn handle_io_port_exit(&self, whp_context: &mut WhpContext<'a>) -> Result<(), WHPError> {
         let vp_context = whp_context.last_exit_context.VpContext;
         let io_port_access_ctx =
             unsafe { whp_context.last_exit_context.anon_union.IoPortAccess };
@@ -151,7 +162,7 @@ impl WhpVirtualProcessor {
         }
     }
 
-    pub fn handle_mmio_exit(&self, whp_context: &mut WhpContext) -> Result<(), WHPError> {
+    pub fn handle_mmio_exit(&self, whp_context: &mut WhpContext<'a>) -> Result<(), WHPError> {
         let vp_context = whp_context.last_exit_context.VpContext;
         let mmio_access_ctx =
             unsafe {whp_context.last_exit_context.anon_union.MemoryAccess };
@@ -300,7 +311,7 @@ impl WhpVirtualProcessor {
 
 }
 
-impl Vcpu for WhpVirtualProcessor {
+impl<'a> Vcpu for WhpVirtualProcessor<'a> {
 
     type RunContextType = *const WHV_RUN_VP_EXIT_CONTEXT;
 
@@ -832,7 +843,7 @@ impl Vcpu for WhpVirtualProcessor {
     }
 }
 
-impl EmulatorCallbacks for WhpContext {
+impl<'a> EmulatorCallbacks for WhpContext<'a> {
     fn io_port(
         &mut self,
         io_access: &mut WHV_EMULATOR_IO_ACCESS_INFO,

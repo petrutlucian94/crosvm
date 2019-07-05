@@ -213,26 +213,24 @@ impl<'a> Memory for MemoryRegionRef<'a> {
 }
 
 /// A wrapper around creating and using a VM.
-pub struct Vm {
+pub struct Vm<'a> {
     partition: Partition,
-    mappings: Vec<GPARangeMapping>,
+    mappings: Vec<GPARangeMapping<'a>>,
 
     guest_mem: GuestMemoryMmap,
     // device_memory: HashMap<u32, MmapRegion>,
     // mem_slot_gaps: BinaryHeap<MemSlot>,
 }
 
-impl Default for Vm {
+impl<'a> Default for Vm<'a> {
     fn default() -> Self {
         unsafe { ::std::mem::zeroed() }
     }
 }
 
-impl Vm {
-    /// Constructs a new `Vm` (Partition) using the given `WhpManager` instance.
-    /// TODO: Currently working through this/not complete
-    pub fn new(whp: &WhpManager, guest_mem: GuestMemoryMmap,
-               vcpu_count: usize, enable_apic: bool) -> Result<Vm> {
+impl<'a> Vm<'a> {
+    pub fn new(guest_mem: GuestMemoryMmap, vcpu_count: usize,
+               enable_apic: bool) -> Result<Vm<'a>> {
         let mut partition = Partition::new().unwrap();
 
         Vm::set_vcpu_count(&mut partition, vcpu_count);
@@ -243,7 +241,7 @@ impl Vm {
 
         partition.setup().unwrap();
 
-        let mappings = Vm::setup_guest_memory(&mut partition, &guest_mem).unwrap();
+        let mappings = Vm::setup_guest_memory(&partition, &guest_mem).unwrap();
 
         Ok(Vm {
             partition,
@@ -252,8 +250,8 @@ impl Vm {
         })
     }
 
-    pub fn get_partition(&self) -> Partition {
-        self.partition.clone()
+    pub fn get_partition(&self) -> &Partition {
+        &self.partition
     }
 
     fn set_vcpu_count(partition: &mut Partition, cpu_count: usize) {
@@ -280,8 +278,8 @@ impl Vm {
     }
 
 
-    fn setup_guest_memory(partition: &mut Partition, guest_mem: &GuestMemoryMmap) ->
-            Result<Vec<GPARangeMapping>> {
+    fn setup_guest_memory(partition: &'a Partition, guest_mem: &GuestMemoryMmap) ->
+            Result<Vec<GPARangeMapping<'a>>> {
         let mut mappings = Vec::new();
 
         guest_mem.with_regions_mut::<_, ()>(|_index, region| {
@@ -600,7 +598,6 @@ impl Vm {
 }
 
 pub trait VcpuExtra {
-    fn new(id: c_ulong, whp: &WhpManager, vm: &Vm) -> Result<Self> where Self: Sized;
     fn get_memory(&self) -> &GuestMemoryMmap;
     fn set_data(&self, data: &[u8]) -> Result<()>;
     fn get_debugregs(&self) -> Result<DebugRegisters>;
@@ -615,16 +612,7 @@ pub trait VcpuExtra {
     fn set_signal_mask(&self, signals: &[c_int]) -> Result<()>;
 }
 
-impl VcpuExtra for WhpVirtualProcessor {
-    /// Constructs a new VCPU for `vm`.
-    ///
-    /// The `id` argument is the CPU number between [0, max vcpus).
-    fn new(id: c_ulong, _whp: &WhpManager, vm: &Vm) -> Result<WhpVirtualProcessor> {
-        let vp = vm.partition.create_virtual_processor(id).unwrap();
-        let wvp = WhpVirtualProcessor::create_whp_vcpu(vp).unwrap();
-        Ok(wvp)
-    }
-
+impl<'a> VcpuExtra for WhpVirtualProcessor<'a> {
     /// Gets a reference to the guest memory owned by this VM of this VCPU.
     ///
     /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after

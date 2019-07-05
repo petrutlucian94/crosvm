@@ -468,7 +468,7 @@ impl X8664arch {
     /// * `mem` - The memory to be used by the guest.
     fn create_vm(whp: &WhpManager, vcpu_count: usize,
                  split_irqchip: bool, mem: GuestMemoryMmap) -> Result<Vm> {
-        let vm = Vm::new(&whp, mem, vcpu_count, !split_irqchip).map_err(Error::CreateVm)?;
+        let vm = Vm::new(mem, vcpu_count, !split_irqchip).map_err(Error::CreateVm)?;
         let tss_addr = GuestAddress(0xfffbd000);
         // vm.set_tss_addr(tss_addr).map_err(Error::SetTssAddr)?;
         // if !split_irqchip {
