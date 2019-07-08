@@ -236,6 +236,7 @@ impl Vm {
         let mut partition = Partition::new().unwrap();
 
         Vm::set_vcpu_count(&mut partition, vcpu_count);
+        Vm::configure_extended_exits(&mut partition);
         if enable_apic {
             info!("Enabling WHP apic");
             Vm::enable_apic(&mut partition);
@@ -254,6 +255,23 @@ impl Vm {
 
     pub fn get_partition(&self) -> Partition {
         self.partition.clone()
+    }
+
+    fn configure_extended_exits(partition: &mut Partition) {
+        let mut property: WHV_PARTITION_PROPERTY = Default::default();
+        unsafe {
+            // TODO(lpetrut): use setup_cpuid and avoid cpuid exits,
+            // having a predefined list of cpuid values.
+            property.ExtendedVmExits.set_X64CpuidExit(1);
+            // property.ExtendedVmExits.set_X64MsrExit(1);
+            // property.ExtendedVmExits.set_ExceptionExit(1);
+        }
+
+        partition.set_property(
+            WHV_PARTITION_PROPERTY_CODE::WHvPartitionPropertyCodeExtendedVmExits,
+            &property,
+        )
+        .unwrap();
     }
 
     fn set_vcpu_count(partition: &mut Partition, cpu_count: usize) {

@@ -313,6 +313,15 @@ fn handle_cpuid_exit(vcpu: &WhpVirtualProcessor) {
     regs.rcx = cpuid_access.DefaultResultRcx;
     regs.rdx = cpuid_access.DefaultResultRdx;
 
+
+    match cpuid_access.Rax {
+        1 => {
+            // Set hypervisor flag
+            regs.rcx |= 1 << 31;
+        }
+        _ => {}
+    }
+
     vcpu.set_regs(&regs).unwrap();
 }
 
