@@ -7,7 +7,7 @@ use std::fmt::{self, Display};
 use std::io::{self, Read, Write};
 use std::iter::Peekable;
 use std::mem;
-use std::os::unix::io::RawFd;
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,12 +15,15 @@ use std::sync::Arc;
 use std::thread;
 
 use p9;
+use vm_memory::{Bytes, ByteValued, Address, GuestAddress, GuestMemory,
+                GuestMemoryMmap, GuestMemoryError};
 use sys_util::{
-    error, warn, Error as SysError, EventFd, GuestAddress, GuestMemory, PollContext, PollToken,
+    error, warn, Error as SysError, EventFd, PollContext, PollResult,
 };
-use virtio_sys::vhost::VIRTIO_F_VERSION_1;
 
-use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_9P};
+use crate::InterruptEvent;
+use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_9P,
+            VIRTIO_F_VERSION_1};
 
 const QUEUE_SIZE: u16 = 128;
 const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
@@ -78,7 +81,7 @@ impl Display for P9Error {
             NoWritableDescriptors => write!(f, "request does not have any writable descriptors"),
             InvalidGuestAddress(addr, len) => write!(
                 f,
-                "descriptor contained invalid guest address range: address = {}, len = {}",
+                "descriptor contained invalid guest address range: address = {:?}, len = {}",
                 addr, len
             ),
             SignalUsedQueue(err) => write!(f, "failed to signal used queue: {}", err),
@@ -93,7 +96,7 @@ struct Reader<'a, I>
 where
     I: Iterator<Item = DescriptorChain<'a>>,
 {
-    mem: &'a GuestMemory,
+    mem: &'a GuestMemoryMmap,
     offset: u32,
     iter: Peekable<I>,
 }
@@ -128,7 +131,7 @@ where
             let len = min(buf.len(), (current.len - self.offset) as usize);
             let count = self
                 .mem
-                .read_at_addr(&mut buf[..len], addr)
+                .read(&mut buf[..len], addr)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
             // |count| has to fit into a u32 because it must be less than or equal to
@@ -147,7 +150,7 @@ struct Writer<'a, I>
 where
     I: Iterator<Item = DescriptorChain<'a>>,
 {
-    mem: &'a GuestMemory,
+    mem: &'a GuestMemoryMmap,
     bytes_written: u32,
     offset: u32,
     iter: Peekable<I>,
@@ -184,7 +187,7 @@ where
             let len = min(buf.len(), (current.len - self.offset) as usize);
             let count = self
                 .mem
-                .write_at_addr(&buf[..len], addr)
+                .write(&buf[..len], addr)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
             // |count| has to fit into a u32 because it must be less than or equal to
@@ -206,11 +209,11 @@ where
 }
 
 struct Worker {
-    mem: GuestMemory,
+    mem: GuestMemoryMmap,
     queue: Queue,
     server: p9::Server,
     irq_status: Arc<AtomicUsize>,
-    irq_evt: EventFd,
+    irq_evt: InterruptEvent,
     interrupt_resample_evt: EventFd,
 }
 
@@ -256,41 +259,31 @@ impl Worker {
     }
 
     fn run(&mut self, queue_evt: EventFd, kill_evt: EventFd) -> P9Result<()> {
-        #[derive(PollToken)]
-        enum Token {
-            // A request is ready on the queue.
-            QueueReady,
-            // Check if any interrupts need to be re-asserted.
-            InterruptResample,
-            // The parent thread requested an exit.
-            Kill,
-        }
+        let mut poll_ctx = PollContext::new();
+        poll_ctx.add(queue_evt.as_raw_handle());
+        poll_ctx.add(self.interrupt_resample_evt.as_raw_handle());
+        poll_ctx.add(kill_evt.as_raw_handle());
 
-        let poll_ctx: PollContext<Token> = PollContext::new()
-            .and_then(|pc| pc.add(&queue_evt, Token::QueueReady).and(Ok(pc)))
-            .and_then(|pc| {
-                pc.add(&self.interrupt_resample_evt, Token::InterruptResample)
-                    .and(Ok(pc))
-            })
-            .and_then(|pc| pc.add(&kill_evt, Token::Kill).and(Ok(pc)))
-            .map_err(P9Error::CreatePollContext)?;
+        'poll: loop {
+            let poll_result = poll_ctx.wait();
+            let signaled_h = match poll_result {
+                PollResult::Signaled(h) => h,
+                _ => panic!(format!("Unexpected poll result {:?}.", poll_result)),
+            };
 
-        loop {
-            let events = poll_ctx.wait().map_err(P9Error::PollError)?;
-            for event in events.iter_readable() {
-                match event.token() {
-                    Token::QueueReady => {
-                        queue_evt.read().map_err(P9Error::ReadQueueEventFd)?;
-                        self.process_queue()?;
-                    }
-                    Token::InterruptResample => {
-                        let _ = self.interrupt_resample_evt.read();
-                        if self.irq_status.load(Ordering::SeqCst) != 0 {
-                            self.irq_evt.write(1).unwrap();
-                        }
-                    }
-                    Token::Kill => return Ok(()),
+            let mut needs_interrupt = false;
+            let mut needs_config_interrupt = false;
+
+            if signaled_h == queue_evt.as_raw_handle() {
+                self.process_queue();
+            }
+            else if signaled_h == self.interrupt_resample_evt.as_raw_handle() {
+                if self.irq_status.load(Ordering::SeqCst) != 0 {
+                    self.irq_evt.write(1).unwrap();
                 }
+            }
+            else if signaled_h == kill_evt.as_raw_handle() {
+                return Ok(());
             }
         }
     }
@@ -335,10 +328,6 @@ impl P9 {
 }
 
 impl VirtioDevice for P9 {
-    fn keep_fds(&self) -> Vec<RawFd> {
-        Vec::new()
-    }
-
     fn device_type(&self) -> u32 {
         TYPE_9P
     }
@@ -381,8 +370,8 @@ impl VirtioDevice for P9 {
 
     fn activate(
         &mut self,
-        guest_mem: GuestMemory,
-        interrupt_evt: EventFd,
+        guest_mem: GuestMemoryMmap,
+        interrupt_evt: InterruptEvent,
         interrupt_resample_evt: EventFd,
         status: Arc<AtomicUsize>,
         mut queues: Vec<Queue>,

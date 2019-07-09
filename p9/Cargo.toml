@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 libc = "*"
 wire_format_derive = { path = "wire_format_derive" }
+sys_util = { path = "../sys_util" }
 
 [features]
 trace = []

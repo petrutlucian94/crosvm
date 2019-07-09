@@ -252,7 +252,7 @@ fn set_argument(cfg: &mut Config, name: &str, value: Option<&str>) -> argument::
         "shared-dir" => {
             // Formatted as <src:tag>.
             let param = value.unwrap();
-            let mut components = param.splitn(2, ':');
+            let mut components = param.splitn(2, '#');
             let src =
                 PathBuf::from(
                     components
@@ -319,7 +319,7 @@ fn run_vm(args: std::env::Args) -> std::result::Result<(), ()> {
                           "IP address to assign to host tap interface."),
           Argument::value("netmask", "NETMASK", "Netmask for VM subnet."),
           Argument::value("mac", "MAC", "MAC address for VM."),
-          Argument::value("shared-dir", "PATH:TAG",
+          Argument::value("shared-dir", "PATH#TAG",
                           "Directory to be shared with a VM as a source:tag pair. Can be given more than once."),
           #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
           Argument::flag("split-irqchip", "(EXPERIMENTAL) enable split-irqchip support"),

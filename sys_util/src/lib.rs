@@ -26,6 +26,8 @@ mod errno_windows;
 mod eventfd_unix;
 #[cfg(windows)]
 mod eventfd_windows;
+#[cfg(windows)]
+mod disk_util_windows;
 
 mod poll;
 mod file_traits;
@@ -50,10 +52,13 @@ use crate::errno_windows as errno;
 use crate::eventfd_unix as eventfd;
 #[cfg(windows)]
 use crate::eventfd_windows as eventfd;
+#[cfg(windows)]
+use crate::disk_util_windows as disk_util;
 
 pub use errno::errno_result;
 pub use crate::errno::{Error, Result};
 pub use crate::eventfd::*;
+pub use crate::disk_util::*;
 pub use poll::{PollContext, PollResult};
 pub use crate::raw_fd::*;
 pub use crate::struct_util::*;

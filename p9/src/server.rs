@@ -8,14 +8,168 @@ use std::cmp::min;
 use std::collections::{btree_map, BTreeMap};
 use std::ffi::CString;
 use std::fs;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Cursor, Read, Write, Seek, SeekFrom};
 use std::mem;
-use std::os::linux::fs::MetadataExt;
-use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt};
-use std::os::unix::io::AsRawFd;
+use std::os::windows::fs::OpenOptionsExt;
+// use std::os::linux::fs::MetadataExt;
+// use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt};
+// use std::os::unix::io::AsRawFd;
 use std::path::{Component, Path, PathBuf};
+use std::time::SystemTime;
+
+use sys_util::VolumeInfo;
 
 use crate::protocol::*;
+
+// TODO(lpetrut): move this somewhere else (e.g. sys_util)
+// libc doesn't provide those constants on Windows.
+pub enum Errno {
+    UnknownErrno,
+    EPERM,
+    ENOENT,
+    ESRCH,
+    EINTR,
+    EIO,
+    ENXIO,
+    E2BIG,
+    ENOEXEC,
+    EBADF,
+    ECHILD,
+    EAGAIN,
+    ENOMEM,
+    EACCES,
+    EFAULT,
+    ENOTBLK,
+    EBUSY,
+    EEXIST,
+    EXDEV,
+    ENODEV,
+    ENOTDIR,
+    EISDIR,
+    EINVAL,
+    ENFILE,
+    EMFILE,
+    ENOTTY,
+    ETXTBSY,
+    EFBIG,
+    ENOSPC,
+    ESPIPE,
+    EROFS,
+    EMLINK,
+    EPIPE,
+    EDOM,
+    ERANGE,
+    EDEADLK,
+    ENAMETOOLONG,
+    ENOLCK,
+    ENOSYS,
+    ENOTEMPTY,
+    ELOOP,
+    ENOMSG,
+    EIDRM,
+    ECHRNG,
+    EL2NSYNC,
+    EL3HLT,
+    EL3RST,
+    ELNRNG,
+    EUNATCH,
+    ENOCSI,
+    EL2HLT,
+    EBADE,
+    EBADR,
+    EXFULL,
+    ENOANO,
+    EBADRQC,
+    EBADSLT,
+    EBFONT,
+    ENOSTR,
+    ENODATA,
+    ETIME,
+    ENOSR,
+    ENONET,
+    ENOPKG,
+    EREMOTE,
+    ENOLINK,
+    EADV,
+    ESRMNT,
+    ECOMM,
+    EPROTO,
+    EMULTIHOP,
+    EDOTDOT,
+    EBADMSG,
+    EOVERFLOW,
+    ENOTUNIQ,
+    EBADFD,
+    EREMCHG,
+    ELIBACC,
+    ELIBBAD,
+    ELIBSCN,
+    ELIBMAX,
+    ELIBEXEC,
+    EILSEQ,
+    ERESTART,
+    ESTRPIPE,
+    EUSERS,
+    ENOTSOCK,
+    EDESTADDRREQ,
+    EMSGSIZE,
+    EPROTOTYPE,
+    ENOPROTOOPT,
+    EPROTONOSUPPORT,
+    ESOCKTNOSUPPORT,
+    EOPNOTSUPP,
+    EPFNOSUPPORT,
+    EAFNOSUPPORT,
+    EADDRINUSE,
+    EADDRNOTAVAIL,
+    ENETDOWN,
+    ENETUNREACH,
+    ENETRESET,
+    ECONNABORTED,
+    ECONNRESET,
+    ENOBUFS,
+    EISCONN,
+    ENOTCONN,
+    ESHUTDOWN,
+    ETOOMANYREFS,
+    ETIMEDOUT,
+    ECONNREFUSED,
+    EHOSTDOWN,
+    EHOSTUNREACH,
+    EALREADY,
+    EINPROGRESS,
+    ESTALE,
+    EUCLEAN,
+    ENOTNAM,
+    ENAVAIL,
+    EISNAM,
+    EREMOTEIO,
+    EDQUOT,
+    ENOMEDIUM,
+    EMEDIUMTYPE,
+    ECANCELED,
+    ENOKEY,
+    EKEYEXPIRED,
+    EKEYREVOKED,
+    EKEYREJECTED,
+    EOWNERDEAD,
+    ENOTRECOVERABLE,
+    ERFKILL,
+    EHWPOISON,
+}
+
+const DT_UNKNOWN: u8 = 0;
+const DT_FIFO: u8 = 1;
+const DT_CHR: u8 = 2;
+const DT_DIR: u8 = 4;
+const DT_BLK: u8 = 6;
+const DT_REG: u8 = 8;
+const DT_LNK: u8 = 10;
+const DT_SOCK: u8 = 12;
+
+const AT_REMOVEDIR: i32 = 0x200;
+
+const EWOULDBLOCK: i32 = Errno::EAGAIN as i32;
 
 // Tlopen and Tlcreate flags.  Taken from "include/net/9p/9p.h" in the linux tree.
 const _P9_RDONLY: u32 = 0o00000000;
@@ -38,19 +192,43 @@ const P9_NOATIME: u32 = 0o01000000;
 const _P9_CLOEXEC: u32 = 0o02000000;
 const P9_SYNC: u32 = 0o04000000;
 
+const S_IFDIR: u32 = 0o0040000;
+const S_IFCHR: u32 = 0o0020000;
+const S_IFBLK: u32 = 0o0060000;
+const S_IFREG: u32 = 0o0100000;
+const S_IFIFO: u32 = 0o0010000;
+const S_IFLNK: u32 = 0o0120000;
+const S_IFSOCK: u32 = 0o0140000;
+
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
+
+
 // Mapping from 9P flags to libc flags.
+// TODO(lpetrut): handle those flags
 const MAPPED_FLAGS: [(u32, i32); 10] = [
-    (P9_NOCTTY, libc::O_NOCTTY),
-    (P9_NONBLOCK, libc::O_NONBLOCK),
-    (P9_DSYNC, libc::O_DSYNC),
+    (P9_NOCTTY, 0),
+    (P9_NONBLOCK, 0),
+    (P9_DSYNC, 0),
     (P9_FASYNC, 0), // Unsupported
-    (P9_DIRECT, libc::O_DIRECT),
-    (P9_LARGEFILE, libc::O_LARGEFILE),
-    (P9_DIRECTORY, libc::O_DIRECTORY),
-    (P9_NOFOLLOW, libc::O_NOFOLLOW),
-    (P9_NOATIME, libc::O_NOATIME),
-    (P9_SYNC, libc::O_SYNC),
+    (P9_DIRECT, 0),
+    (P9_LARGEFILE, 0),
+    (P9_DIRECTORY, 0),
+    (P9_NOFOLLOW, 0),
+    (P9_NOATIME, 0),
+    (P9_SYNC, 0),
 ];
+// const MAPPED_FLAGS: [(u32, i32); 10] = [
+//     (P9_NOCTTY, libc::O_NOCTTY),
+//     (P9_NONBLOCK, libc::O_NONBLOCK),
+//     (P9_DSYNC, libc::O_DSYNC),
+//     (P9_FASYNC, 0), // Unsupported
+//     (P9_DIRECT, libc::O_DIRECT),
+//     (P9_LARGEFILE, libc::O_LARGEFILE),
+//     (P9_DIRECTORY, libc::O_DIRECTORY),
+//     (P9_NOFOLLOW, libc::O_NOFOLLOW),
+//     (P9_NOATIME, libc::O_NOATIME),
+//     (P9_SYNC, libc::O_SYNC),
+// ];
 
 // 9P Qid types.  Taken from "include/net/9p/9p.h" in the linux tree.
 const P9_QTDIR: u8 = 0x80;
@@ -94,6 +272,10 @@ const P9_SETATTR_CTIME: u32 = 0x00000040;
 const P9_SETATTR_ATIME_SET: u32 = 0x00000080;
 const P9_SETATTR_MTIME_SET: u32 = 0x00000100;
 
+const NTFS_SB_MAGIC: u32 = 0x5346544e;
+const SMB_SUPER_MAGIC: u32 = 0x517B;
+const CIFS_MAGIC_NUMBER: u32 = 0xFF534D42;
+
 // Minimum and maximum message size that we'll expect from the client.
 const MIN_MESSAGE_SIZE: u32 = 256;
 const MAX_MESSAGE_SIZE: u32 = ::std::u16::MAX as u32;
@@ -123,8 +305,10 @@ fn metadata_to_qid(metadata: &fs::Metadata) -> Qid {
     Qid {
         ty,
         // TODO: deal with the 2038 problem before 2038
-        version: metadata.st_mtime() as u32,
-        path: metadata.st_ino(),
+        // version: metadata.modified() as u32,
+        // path: metadata.st_ino(),
+        version: 0,
+        path: 0 // TODO(lpetrut): can we hash the path to generate an inode?
     }
 }
 
@@ -134,25 +318,25 @@ fn error_to_rmessage(err: io::Error) -> Rmessage {
     } else {
         // Make a best-effort guess based on the kind.
         match err.kind() {
-            io::ErrorKind::NotFound => libc::ENOENT,
-            io::ErrorKind::PermissionDenied => libc::EPERM,
-            io::ErrorKind::ConnectionRefused => libc::ECONNREFUSED,
-            io::ErrorKind::ConnectionReset => libc::ECONNRESET,
-            io::ErrorKind::ConnectionAborted => libc::ECONNABORTED,
-            io::ErrorKind::NotConnected => libc::ENOTCONN,
-            io::ErrorKind::AddrInUse => libc::EADDRINUSE,
-            io::ErrorKind::AddrNotAvailable => libc::EADDRNOTAVAIL,
-            io::ErrorKind::BrokenPipe => libc::EPIPE,
-            io::ErrorKind::AlreadyExists => libc::EEXIST,
-            io::ErrorKind::WouldBlock => libc::EWOULDBLOCK,
-            io::ErrorKind::InvalidInput => libc::EINVAL,
-            io::ErrorKind::InvalidData => libc::EINVAL,
-            io::ErrorKind::TimedOut => libc::ETIMEDOUT,
-            io::ErrorKind::WriteZero => libc::EIO,
-            io::ErrorKind::Interrupted => libc::EINTR,
-            io::ErrorKind::Other => libc::EIO,
-            io::ErrorKind::UnexpectedEof => libc::EIO,
-            _ => libc::EIO,
+            io::ErrorKind::NotFound => Errno::ENOENT as i32,
+            io::ErrorKind::PermissionDenied => Errno::EPERM as i32,
+            io::ErrorKind::ConnectionRefused => Errno::ECONNREFUSED as i32,
+            io::ErrorKind::ConnectionReset => Errno::ECONNRESET as i32,
+            io::ErrorKind::ConnectionAborted => Errno::ECONNABORTED as i32,
+            io::ErrorKind::NotConnected => Errno::ENOTCONN as i32,
+            io::ErrorKind::AddrInUse => Errno::EADDRINUSE as i32,
+            io::ErrorKind::AddrNotAvailable => Errno::EADDRNOTAVAIL as i32,
+            io::ErrorKind::BrokenPipe => Errno::EPIPE as i32,
+            io::ErrorKind::AlreadyExists => Errno::EEXIST as i32,
+            io::ErrorKind::WouldBlock => EWOULDBLOCK as i32,
+            io::ErrorKind::InvalidInput => Errno::EINVAL as i32,
+            io::ErrorKind::InvalidData => Errno::EINVAL as i32,
+            io::ErrorKind::TimedOut => Errno::ETIMEDOUT as i32,
+            io::ErrorKind::WriteZero => Errno::EIO as i32,
+            io::ErrorKind::Interrupted => Errno::EINTR as i32,
+            io::ErrorKind::Other => Errno::EIO as i32,
+            io::ErrorKind::UnexpectedEof => Errno::EIO as i32,
+            _ => Errno::EIO as i32,
         }
     };
 
@@ -177,17 +361,17 @@ fn join_path<P: AsRef<Path>, R: AsRef<Path>>(
     debug_assert!(buf.starts_with(root));
 
     if path.components().count() > 1 {
-        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        return Err(io::Error::from_raw_os_error(Errno::EINVAL as i32));
     }
 
     for component in path.components() {
         match component {
             // Prefix should only appear on windows systems.
-            Component::Prefix(_) => return Err(io::Error::from_raw_os_error(libc::EINVAL)),
+            Component::Prefix(_) => return Err(io::Error::from_raw_os_error(Errno::EINVAL as i32)),
             // Absolute paths are not allowed.
-            Component::RootDir => return Err(io::Error::from_raw_os_error(libc::EINVAL)),
+            Component::RootDir => return Err(io::Error::from_raw_os_error(Errno::EINVAL as i32)),
             // '.' elements are not allowed.
-            Component::CurDir => return Err(io::Error::from_raw_os_error(libc::EINVAL)),
+            Component::CurDir => return Err(io::Error::from_raw_os_error(Errno::EINVAL as i32)),
             Component::ParentDir => {
                 // We only remove the parent path if we are not already at the root of the
                 // file system.
@@ -276,7 +460,7 @@ impl Server {
     fn auth(&mut self, _auth: &Tauth) -> io::Result<Rmessage> {
         // Returning an error for the auth message means that the server does not require
         // authentication.
-        Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP))
+        Err(io::Error::from_raw_os_error(Errno::EOPNOTSUPP as i32))
     }
 
     fn attach(&mut self, attach: &Tattach) -> io::Result<Rmessage> {
@@ -295,13 +479,13 @@ impl Server {
                 entry.insert(fid);
                 Ok(Rmessage::Attach(response))
             }
-            btree_map::Entry::Occupied(_) => Err(io::Error::from_raw_os_error(libc::EBADF)),
+            btree_map::Entry::Occupied(_) => Err(io::Error::from_raw_os_error(Errno::EBADF as i32)),
         }
     }
 
     fn version(&mut self, version: &Tversion) -> io::Result<Rmessage> {
         if version.msize < MIN_MESSAGE_SIZE {
-            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+            return Err(io::Error::from_raw_os_error(Errno::EINVAL as i32));
         }
 
         // A Tversion request clunks all open fids and terminates any pending I/O.
@@ -341,14 +525,14 @@ impl Server {
     fn walk(&mut self, walk: &Twalk) -> io::Result<Rmessage> {
         // `newfid` must not currently be in use unless it is the same as `fid`.
         if walk.fid != walk.newfid && self.fids.contains_key(&walk.newfid) {
-            return Err(io::Error::from_raw_os_error(libc::EBADF));
+            return Err(io::Error::from_raw_os_error(Errno::EBADF as i32));
         }
 
         // We need to walk the tree.  First get the starting path.
         let (buf, oldmd) = self
             .fids
             .get(&walk.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))
             .map(|fid| (fid.path.to_path_buf(), fid.metadata.clone()))?;
 
         // Now walk the tree and break on the first error, if any.
@@ -394,7 +578,7 @@ impl Server {
             .fids
             .get_mut(&read.fid)
             .and_then(|fid| fid.file.as_mut())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         // Use an empty Rread struct to figure out the overhead of the header.
         let header_size = Rframe {
@@ -409,7 +593,8 @@ impl Server {
         let mut buf = Data(Vec::with_capacity(capacity as usize));
         buf.resize(capacity as usize, 0);
 
-        let count = file.read_at(&mut buf, read.offset)?;
+        file.seek(SeekFrom::Start(read.offset))?;
+        let count = file.read(&mut buf)?;
         buf.resize(count, 0);
 
         Ok(Rmessage::Read(Rread { data: buf }))
@@ -420,9 +605,10 @@ impl Server {
             .fids
             .get_mut(&write.fid)
             .and_then(|fid| fid.file.as_mut())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
-        let count = file.write_at(&write.data, write.offset)?;
+        file.seek(SeekFrom::Start(write.offset))?;
+        let count = file.write(&write.data)?;
         Ok(Rmessage::Write(Rwrite {
             count: count as u32,
         }))
@@ -430,7 +616,7 @@ impl Server {
 
     fn clunk(&mut self, clunk: &Tclunk) -> io::Result<Rmessage> {
         match self.fids.entry(clunk.fid) {
-            btree_map::Entry::Vacant(_) => Err(io::Error::from_raw_os_error(libc::EBADF)),
+            btree_map::Entry::Vacant(_) => Err(io::Error::from_raw_os_error(Errno::EBADF as i32)),
             btree_map::Entry::Occupied(entry) => {
                 entry.remove();
                 Ok(Rmessage::Clunk)
@@ -440,7 +626,7 @@ impl Server {
 
     fn remove(&mut self, remove: &Tremove) -> io::Result<Rmessage> {
         match self.fids.entry(remove.fid) {
-            btree_map::Entry::Vacant(_) => Err(io::Error::from_raw_os_error(libc::EBADF)),
+            btree_map::Entry::Vacant(_) => Err(io::Error::from_raw_os_error(Errno::EBADF as i32)),
             btree_map::Entry::Occupied(o) => {
                 let (_, fid) = o.remove_entry();
 
@@ -455,51 +641,75 @@ impl Server {
         }
     }
 
+    // TODO(lpetrut): implement this
     fn statfs(&mut self, statfs: &Tstatfs) -> io::Result<Rmessage> {
         let fid = self
             .fids
             .get(&statfs.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
         let path = fid
             .path
             .to_str()
-            .and_then(|path| CString::new(path).ok())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EINVAL as i32))?;
 
-        // Safe because we are zero-initializing a C struct with only primitive
-        // data members.
-        let mut out: libc::statfs64 = unsafe { mem::zeroed() };
+    //     // Safe because we are zero-initializing a C struct with only primitive
+    //     // data members.
+    //     let mut out: libc::statfs64 = unsafe { mem::zeroed() };
 
-        // Safe because we know that `path` is valid and we have already initialized `out`.
-        let ret = unsafe { libc::statfs64(path.as_ptr(), &mut out) };
-        if ret != 0 {
-            return Err(io::Error::last_os_error());
-        }
+    //     // Safe because we know that `path` is valid and we have already initialized `out`.
+    //     let ret = unsafe { libc::statfs64(path.as_ptr(), &mut out) };
+    //     if ret != 0 {
+    //         return Err(io::Error::last_os_error());
+    //     }
 
+        let volume_info = VolumeInfo::get(path)
+            .or(Err(io::Error::from_raw_os_error(Errno::EINVAL as i32)))?;
+
+        // TODO(lpetrut): avoid hardcoded values
         Ok(Rmessage::Statfs(Rstatfs {
-            ty: out.f_type as u32,
-            bsize: out.f_bsize as u32,
-            blocks: out.f_blocks,
-            bfree: out.f_bfree,
-            bavail: out.f_bavail,
-            files: out.f_files,
-            ffree: out.f_ffree,
+            ty: NTFS_SB_MAGIC,
+            bsize: volume_info.block_size as u32,
+            blocks: volume_info.total_blocks,
+            bfree: volume_info.free_blocks,
+            bavail: volume_info.free_blocks,
+            files: 0,
+            ffree: 0xffffffff,
             fsid: 0, // No way to get the fields of a libc::fsid_t
-            namelen: out.f_namelen as u32,
+            namelen: 255,
         }))
+
+    //     Ok(Rmessage::Statfs(Rstatfs {
+    //         ty: out.f_type as u32,
+    //         bsize: out.f_bsize as u32,
+    //         blocks: out.f_blocks,
+    //         bfree: out.f_bfree,
+    //         bavail: out.f_bavail,
+    //         files: out.f_files,
+    //         ffree: out.f_ffree,
+    //         fsid: 0, // No way to get the fields of a libc::fsid_t
+    //         namelen: out.f_namelen as u32,
+    //     }))
     }
 
     fn lopen(&mut self, lopen: &Tlopen) -> io::Result<Rmessage> {
         let fid = self
             .fids
             .get_mut(&lopen.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
+        // TODO(lpetrut): handle custom flags
         // We always open files with O_CLOEXEC.
-        let mut custom_flags: i32 = libc::O_CLOEXEC;
-        for &(p9f, of) in &MAPPED_FLAGS {
-            if (lopen.flags & p9f) != 0 {
-                custom_flags |= of;
-            }
+        // let mut custom_flags: i32 = libc::O_CLOEXEC;
+        // for &(p9f, of) in &MAPPED_FLAGS {
+        //     if (lopen.flags & p9f) != 0 {
+        //         custom_flags |= of;
+        //     }
+        // }
+
+        // FILE_FLAG_BACKUP_SEMANTICS allows us to open dirs.
+        let custom_flags = FILE_FLAG_BACKUP_SEMANTICS;
+
+        if cfg!(feature = "trace") {
+            println!("Opening {:?} with flags {}", &fid.path, lopen.flags);
         }
 
         let file = fs::OpenOptions::new()
@@ -525,21 +735,22 @@ impl Server {
         let fid = self
             .fids
             .get_mut(&lcreate.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         if !fid.metadata.is_dir() {
-            return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+            return Err(io::Error::from_raw_os_error(Errno::ENOTDIR as i32));
         }
 
         let name = Path::new(&lcreate.name);
         let path = join_path(fid.path.to_path_buf(), name, &*self.root)?;
 
-        let mut custom_flags: i32 = libc::O_CLOEXEC;
-        for &(p9f, of) in &MAPPED_FLAGS {
-            if (lcreate.flags & p9f) != 0 {
-                custom_flags |= of;
-            }
-        }
+        // TODO(lpetrut): handle custom flags
+        // let mut custom_flags: i32 = libc::O_CLOEXEC;
+        // for &(p9f, of) in &MAPPED_FLAGS {
+        //     if (lcreate.flags & p9f) != 0 {
+        //         custom_flags |= of;
+        //     }
+        // }
 
         let file = fs::OpenOptions::new()
             .read(false)
@@ -548,8 +759,8 @@ impl Server {
             .create(true)
             .append((lcreate.flags & P9_APPEND) != 0)
             .create_new((lcreate.flags & P9_EXCL) != 0)
-            .custom_flags(custom_flags)
-            .mode(lcreate.mode & 0o755)
+            // .custom_flags(custom_flags)
+            // .mode(lcreate.mode & 0o755)
             .open(&path)?;
 
         fid.metadata = file.metadata()?;
@@ -564,12 +775,12 @@ impl Server {
 
     fn symlink(&mut self, _symlink: &Tsymlink) -> io::Result<Rmessage> {
         // symlinks are not allowed.
-        Err(io::Error::from_raw_os_error(libc::EACCES))
+        Err(io::Error::from_raw_os_error(Errno::EACCES as i32))
     }
 
     fn mknod(&mut self, _mknod: &Tmknod) -> io::Result<Rmessage> {
         // No nodes either.
-        Err(io::Error::from_raw_os_error(libc::EACCES))
+        Err(io::Error::from_raw_os_error(Errno::EACCES as i32))
     }
 
     fn rename(&mut self, rename: &Trename) -> io::Result<Rmessage> {
@@ -577,14 +788,14 @@ impl Server {
         let buf = self
             .fids
             .get(&rename.dfid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))
             .map(|dfid| dfid.path.to_path_buf())?;
         let newpath = join_path(buf, newname, &*self.root)?;
 
         let fid = self
             .fids
             .get_mut(&rename.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EINVAL as i32))?;
 
         fs::rename(&fid.path, &newpath)?;
 
@@ -596,35 +807,68 @@ impl Server {
 
     fn readlink(&mut self, _readlink: &Treadlink) -> io::Result<Rmessage> {
         // symlinks are not allowed
-        Err(io::Error::from_raw_os_error(libc::EACCES))
+        Err(io::Error::from_raw_os_error(Errno::EACCES as i32))
     }
 
     fn get_attr(&mut self, get_attr: &Tgetattr) -> io::Result<Rmessage> {
         let fid = self
             .fids
             .get_mut(&get_attr.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         // Refresh the metadata since we were explicitly asked for it.
         fid.metadata = fs::metadata(&fid.path)?;
 
+        // TODO(lpetrut): fill this.
+        // Ok(Rmessage::GetAttr(Rgetattr {
+        //     valid: P9_GETATTR_BASIC,
+        //     qid: metadata_to_qid(&fid.metadata),
+        //     mode: fid.metadata.st_mode(),
+        //     uid: fid.metadata.st_uid(),
+        //     gid: fid.metadata.st_gid(),
+        //     nlink: fid.metadata.st_nlink(),
+        //     rdev: fid.metadata.st_rdev(),
+        //     size: fid.metadata.st_size(),
+        //     blksize: fid.metadata.st_blksize(),
+        //     blocks: fid.metadata.st_blocks(),
+        //     atime_sec: fid.metadata.st_atime() as u64,
+        //     atime_nsec: fid.metadata.st_atime_nsec() as u64,
+        //     mtime_sec: fid.metadata.st_mtime() as u64,
+        //     mtime_nsec: fid.metadata.st_mtime_nsec() as u64,
+        //     ctime_sec: fid.metadata.st_ctime() as u64,
+        //     ctime_nsec: fid.metadata.st_ctime_nsec() as u64,
+        //     btime_sec: 0,
+        //     btime_nsec: 0,
+        //     gen: 0,
+        //     data_version: 0,
+        // }))
+
+        let mut mode = 0o777;
+        if fid.metadata.is_dir() {
+            mode |= S_IFDIR;
+        }
+        else {
+            mode |= S_IFREG;
+        }
+
+        // TODO(lpetrut): avoid unwrap
         Ok(Rmessage::GetAttr(Rgetattr {
             valid: P9_GETATTR_BASIC,
             qid: metadata_to_qid(&fid.metadata),
-            mode: fid.metadata.st_mode(),
-            uid: fid.metadata.st_uid(),
-            gid: fid.metadata.st_gid(),
-            nlink: fid.metadata.st_nlink(),
-            rdev: fid.metadata.st_rdev(),
-            size: fid.metadata.st_size(),
-            blksize: fid.metadata.st_blksize(),
-            blocks: fid.metadata.st_blocks(),
-            atime_sec: fid.metadata.st_atime() as u64,
-            atime_nsec: fid.metadata.st_atime_nsec() as u64,
-            mtime_sec: fid.metadata.st_mtime() as u64,
-            mtime_nsec: fid.metadata.st_mtime_nsec() as u64,
-            ctime_sec: fid.metadata.st_ctime() as u64,
-            ctime_nsec: fid.metadata.st_ctime_nsec() as u64,
+            mode: mode,
+            uid: 0,
+            gid: 0,
+            nlink: 1,
+            rdev: 0,
+            size: fid.metadata.len(),
+            blksize: 4096,
+            blocks: fid.metadata.len() / 4096,
+            atime_sec: fid.metadata.accessed()?.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
+            atime_nsec: 0,
+            mtime_sec: fid.metadata.modified()?.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
+            mtime_nsec: 0,
+            ctime_sec: fid.metadata.created()?.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
+            ctime_nsec: 0 as u64,
             btime_sec: 0,
             btime_nsec: 0,
             gen: 0,
@@ -633,88 +877,89 @@ impl Server {
     }
 
     fn set_attr(&mut self, set_attr: &Tsetattr) -> io::Result<Rmessage> {
-        let blocked_ops = P9_SETATTR_MODE | P9_SETATTR_UID | P9_SETATTR_GID;
-        if set_attr.valid & blocked_ops != 0 {
-            return Err(io::Error::from_raw_os_error(libc::EPERM));
-        }
+        // TODO(lpetrut): try to enable this on Windows.
+        // let blocked_ops = P9_SETATTR_MODE | P9_SETATTR_UID | P9_SETATTR_GID;
+        // if set_attr.valid & blocked_ops != 0 {
+        //     return Err(io::Error::from_raw_os_error(Errno::EPERM as i32));
+        // }
 
-        let fid = self
-            .fids
-            .get_mut(&set_attr.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
-        let file = fs::OpenOptions::new().write(true).open(&fid.path)?;
+        // let fid = self
+        //     .fids
+        //     .get_mut(&set_attr.fid)
+        //     .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
+        // let file = fs::OpenOptions::new().write(true).open(&fid.path)?;
 
-        if set_attr.valid & P9_SETATTR_SIZE != 0 {
-            file.set_len(set_attr.size)?;
-        }
+        // if set_attr.valid & P9_SETATTR_SIZE != 0 {
+        //     file.set_len(set_attr.size)?;
+        // }
 
-        if set_attr.valid & (P9_SETATTR_ATIME | P9_SETATTR_MTIME) != 0 {
-            let times = [
-                libc::timespec {
-                    tv_sec: set_attr.atime_sec as _,
-                    tv_nsec: if set_attr.valid & P9_SETATTR_ATIME == 0 {
-                        libc::UTIME_OMIT
-                    } else if set_attr.valid & P9_SETATTR_ATIME_SET == 0 {
-                        libc::UTIME_NOW
-                    } else {
-                        set_attr.atime_nsec as _
-                    },
-                },
-                libc::timespec {
-                    tv_sec: set_attr.mtime_sec as _,
-                    tv_nsec: if set_attr.valid & P9_SETATTR_MTIME == 0 {
-                        libc::UTIME_OMIT
-                    } else if set_attr.valid & P9_SETATTR_MTIME_SET == 0 {
-                        libc::UTIME_NOW
-                    } else {
-                        set_attr.mtime_nsec as _
-                    },
-                },
-            ];
+        // if set_attr.valid & (P9_SETATTR_ATIME | P9_SETATTR_MTIME) != 0 {
+        //     let times = [
+        //         libc::timespec {
+        //             tv_sec: set_attr.atime_sec as _,
+        //             tv_nsec: if set_attr.valid & P9_SETATTR_ATIME == 0 {
+        //                 libc::UTIME_OMIT
+        //             } else if set_attr.valid & P9_SETATTR_ATIME_SET == 0 {
+        //                 libc::UTIME_NOW
+        //             } else {
+        //                 set_attr.atime_nsec as _
+        //             },
+        //         },
+        //         libc::timespec {
+        //             tv_sec: set_attr.mtime_sec as _,
+        //             tv_nsec: if set_attr.valid & P9_SETATTR_MTIME == 0 {
+        //                 libc::UTIME_OMIT
+        //             } else if set_attr.valid & P9_SETATTR_MTIME_SET == 0 {
+        //                 libc::UTIME_NOW
+        //             } else {
+        //                 set_attr.mtime_nsec as _
+        //             },
+        //         },
+        //     ];
 
-            // Safe because file is valid and we have initialized times fully.
-            let ret = unsafe { libc::futimens(file.as_raw_fd(), &times as *const libc::timespec) };
-            if ret < 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
+        //     // Safe because file is valid and we have initialized times fully.
+        //     let ret = unsafe { libc::futimens(file.as_raw_fd(), &times as *const libc::timespec) };
+        //     if ret < 0 {
+        //         return Err(io::Error::last_os_error());
+        //     }
+        // }
 
         // The ctime would have been updated by any of the above operations so we only
         // need to change it if it was the only option given.
-        if set_attr.valid & P9_SETATTR_CTIME != 0 && set_attr.valid & (!P9_SETATTR_CTIME) == 0 {
-            // Setting -1 as the uid and gid will not actually change anything but will
-            // still update the ctime.
-            let ret = unsafe {
-                libc::fchown(
-                    file.as_raw_fd(),
-                    libc::uid_t::max_value(),
-                    libc::gid_t::max_value(),
-                )
-            };
-            if ret < 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
+        // if set_attr.valid & P9_SETATTR_CTIME != 0 && set_attr.valid & (!P9_SETATTR_CTIME) == 0 {
+        //     // Setting -1 as the uid and gid will not actually change anything but will
+        //     // still update the ctime.
+        //     let ret = unsafe {
+        //         libc::fchown(
+        //             file.as_raw_fd(),
+        //             libc::uid_t::max_value(),
+        //             libc::gid_t::max_value(),
+        //         )
+        //     };
+        //     if ret < 0 {
+        //         return Err(io::Error::last_os_error());
+        //     }
+        // }
 
         Ok(Rmessage::SetAttr)
     }
 
     fn xattr_walk(&mut self, _xattr_walk: &Txattrwalk) -> io::Result<Rmessage> {
-        Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP))
+        Err(io::Error::from_raw_os_error(Errno::EOPNOTSUPP as i32))
     }
 
     fn xattr_create(&mut self, _xattr_create: &Txattrcreate) -> io::Result<Rmessage> {
-        Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP))
+        Err(io::Error::from_raw_os_error(Errno::EOPNOTSUPP as i32))
     }
 
     fn readdir(&mut self, readdir: &Treaddir) -> io::Result<Rmessage> {
         let fid = self
             .fids
             .get_mut(&readdir.fid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         if !fid.metadata.is_dir() {
-            return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+            return Err(io::Error::from_raw_os_error(Errno::ENOTDIR as i32));
         }
 
         // The p9 client implementation in the kernel doesn't fully read all the contents
@@ -735,17 +980,17 @@ impl Server {
                 let qid = metadata_to_qid(&md);
 
                 let ty = if md.is_dir() {
-                    libc::DT_DIR
+                    DT_DIR
                 } else if md.is_file() {
-                    libc::DT_REG
+                    DT_REG
                 } else {
-                    libc::DT_UNKNOWN
+                    DT_UNKNOWN
                 };
 
                 let name = entry
                     .file_name()
                     .into_string()
-                    .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+                    .map_err(|_| io::Error::from_raw_os_error(Errno::EINVAL as i32))?;
 
                 let mut out = Dirent {
                     qid,
@@ -768,7 +1013,7 @@ impl Server {
         let mut entries = fid
             .dirents
             .as_ref()
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?
             .iter()
             .skip_while(|entry| entry.offset <= readdir.offset)
             .peekable();
@@ -807,7 +1052,7 @@ impl Server {
             .fids
             .get(&fsync.fid)
             .and_then(|fid| fid.file.as_ref())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         if fsync.datasync == 0 {
             file.sync_all()?;
@@ -819,11 +1064,11 @@ impl Server {
 
     fn lock(&mut self, _lock: &Tlock) -> io::Result<Rmessage> {
         // File locking is not supported.
-        Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP))
+        Err(io::Error::from_raw_os_error(Errno::EOPNOTSUPP as i32))
     }
     fn get_lock(&mut self, _get_lock: &Tgetlock) -> io::Result<Rmessage> {
         // File locking is not supported.
-        Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP))
+        Err(io::Error::from_raw_os_error(Errno::EOPNOTSUPP as i32))
     }
 
     fn link(&mut self, link: &Tlink) -> io::Result<Rmessage> {
@@ -832,14 +1077,14 @@ impl Server {
             .fids
             .get(&link.dfid)
             .map(|dfid| dfid.path.to_path_buf())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
         let newpath = join_path(buf, newname, &*self.root)?;
 
         let path = self
             .fids
             .get(&link.fid)
             .map(|fid| &fid.path)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         fs::hard_link(path, &newpath)?;
         Ok(Rmessage::Link)
@@ -849,14 +1094,14 @@ impl Server {
         let fid = self
             .fids
             .get(&mkdir.dfid)
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
 
         let name = Path::new(&mkdir.name);
         let newpath = join_path(fid.path.to_path_buf(), name, &*self.root)?;
 
         fs::DirBuilder::new()
             .recursive(false)
-            .mode(mkdir.mode & 0o755)
+            // .mode(mkdir.mode & 0o755)
             .create(&newpath)?;
 
         Ok(Rmessage::Mkdir(Rmkdir {
@@ -870,7 +1115,7 @@ impl Server {
             .fids
             .get(&rename_at.olddirfid)
             .map(|dfid| dfid.path.to_path_buf())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
         let oldpath = join_path(oldbuf, oldname, &*self.root)?;
 
         let newname = Path::new(&rename_at.newname);
@@ -878,7 +1123,7 @@ impl Server {
             .fids
             .get(&rename_at.newdirfid)
             .map(|dfid| dfid.path.to_path_buf())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
         let newpath = join_path(newbuf, newname, &*self.root)?;
 
         fs::rename(&oldpath, &newpath)?;
@@ -891,12 +1136,12 @@ impl Server {
             .fids
             .get(&unlink_at.dirfd)
             .map(|fid| fid.path.to_path_buf())
-            .ok_or_else(|| io::Error::from_raw_os_error(libc::EBADF))?;
+            .ok_or_else(|| io::Error::from_raw_os_error(Errno::EBADF as i32))?;
         let path = join_path(buf, name, &*self.root)?;
 
         let md = fs::metadata(&path)?;
-        if md.is_dir() && (unlink_at.flags & (libc::AT_REMOVEDIR as u32)) == 0 {
-            return Err(io::Error::from_raw_os_error(libc::EISDIR));
+        if md.is_dir() && (unlink_at.flags & (AT_REMOVEDIR as u32)) == 0 {
+            return Err(io::Error::from_raw_os_error(Errno::EISDIR as i32));
         }
 
         if md.is_dir() {
