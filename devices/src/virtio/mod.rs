@@ -10,10 +10,12 @@ mod queue;
 mod virtio_device;
 mod virtio_pci_common_config;
 mod virtio_pci_device;
+mod p9;
 
 pub use self::block::*;
 // pub use self::input::*;
 pub use self::queue::*;
+pub use self::p9::*;
 pub use self::virtio_device::*;
 pub use self::virtio_pci_device::*;
 

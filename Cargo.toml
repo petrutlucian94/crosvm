@@ -30,6 +30,7 @@ kernel_cmdline = { path = "kernel_cmdline" }
 kernel_loader = { path = "kernel_loader" }
 kvm_sys = { path = "kvm_sys" }
 libc = "=0.2.44"
+p9 = { path = "p9" }
 qcow = { path = "qcow" }
 remain = "*"
 resources = { path = "resources" }

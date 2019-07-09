@@ -57,6 +57,7 @@ pub enum Error {
     OpenInitrd(PathBuf, io::Error),
     OpenKernel(PathBuf, io::Error),
     OpenVinput(PathBuf, io::Error),
+    P9DeviceNew(virtio::P9Error),
     // PivotRootDoesntExist(&'static str),
     PollContextAdd(sys_util::Error),
     PollContextDelete(sys_util::Error),
@@ -65,6 +66,7 @@ pub enum Error {
     ReadLowmemMargin(io::Error),
     RegisterBlock(arch::DeviceRegistrationError),
     // RegisterNet(arch::DeviceRegistrationError),
+    RegisterP9(arch::DeviceRegistrationError),
     // RegisterRng(arch::DeviceRegistrationError),
     ReserveMemory(sys_util::Error),
     // RngDeviceNew(virtio::RngError),
@@ -96,6 +98,7 @@ impl Display for Error {
             // NetDeviceNew(e) => write!(f, "failed to set up virtio networking: {}", e),
             OpenInitrd(p, e) => write!(f, "failed to open initrd {}: {}", p.display(), e),
             OpenKernel(p, e) => write!(f, "failed to open kernel image {}: {}", p.display(), e),
+            P9DeviceNew(e) => write!(f, "failed to create 9p device: {}", e),
             OpenVinput(p, e) => write!(f, "failed to open vinput device {}: {}", p.display(), e),
             PollContextAdd(e) => write!(f, "failed to add fd to poll context: {}", e),
             PollContextDelete(e) => write!(f, "failed to remove fd from poll context: {}", e),
@@ -112,6 +115,7 @@ impl Display for Error {
             ),
             RegisterBlock(e) => write!(f, "error registering block device: {}", e),
             // RegisterNet(e) => write!(f, "error registering net device: {}", e),
+            RegisterP9(e) => write!(f, "error registering 9p device: {}", e),
             // RegisterRng(e) => write!(f, "error registering rng device: {}", e),
             ReserveMemory(e) => write!(f, "failed to reserve memory: {}", e),
             // RngDeviceNew(e) => write!(f, "failed to set up rng: {}", e),
@@ -126,6 +130,16 @@ impl std::error::Error for Error {}
 type Result<T> = std::result::Result<T, Error>;
 type DeviceResult<T = VirtioDeviceStub> = std::result::Result<T, Error>;
 
+fn create_9p_device(cfg: &Config, src: &Path, tag: &str) -> DeviceResult {
+    // There's no bind mount so we tell the server to treat the source directory as the
+    // root.
+    let dev = virtio::P9::new(src, tag).map_err(Error::P9DeviceNew)?;
+
+    Ok(VirtioDeviceStub {
+        dev: Box::new(dev),
+    })
+}
+
 fn create_virtio_devices(
     cfg: &Config,
     _mem: &GuestMemoryMmap,
@@ -135,6 +149,10 @@ fn create_virtio_devices(
 
     for disk in &cfg.disks {
         devs.push(create_block_device(cfg, disk)?);
+    }
+
+    for (src, tag) in &cfg.shared_dirs {
+        devs.push(create_9p_device(cfg, src, tag)?);
     }
 
     Ok(devs)
