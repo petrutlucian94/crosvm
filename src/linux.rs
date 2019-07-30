@@ -444,6 +444,11 @@ fn run_control(
     // Wait for the exit event.
     &linux.exit_evt.read();
 
+    for (cpu_id, handle) in vcpu_handles.into_iter().enumerate() {
+        debug!("Joining vcpu {}", cpu_id);
+        handle.join();
+    }
+
     // TODO(lpetrut): pass stdin input to serial port.
     // 'poll: loop {
     //     let events = {
