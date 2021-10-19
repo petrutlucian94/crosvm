@@ -199,6 +199,10 @@ impl<'a> MemoryRegionRef<'a> {
 }
 
 impl<'a> Memory for MemoryRegionRef<'a> {
+    fn as_slice(&self) -> &[u8] {
+        return unsafe { self.region.as_slice().unwrap() };
+    }
+
     fn as_slice_mut(&mut self) -> &mut [u8] {
         return unsafe { self.region.as_mut_slice().unwrap() };
     }
